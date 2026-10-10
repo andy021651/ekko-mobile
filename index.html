@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ekko">
+<meta name="theme-color" content="#0C0F14">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<title>Ekko</title>
+<style>
+  /* 和電腦版 Ekko（ui/styles.css）同一套：深色底、Avenir Next、淡藍強調色、膠囊按鈕。 */
+  :root {
+    color-scheme: dark;
+    --ink: #0C0F14;
+    --paper: #ECEEF2;
+    --accent: #93A6C0;
+    --text: rgba(236, 238, 242, 0.96);
+    --muted: rgba(236, 238, 242, 0.64);
+    --surface: rgba(236, 238, 242, 0.045);
+    --surface-raised: rgba(236, 238, 242, 0.08);
+    --line: rgba(236, 238, 242, 0.08);
+    --danger: #D9A39B;
+    --ok: #8FC79A;
+    --info: #8FB4E0;
+    --warn: #E3C77A;
+    --font-ui: "Avenir Next", "SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang TC", sans-serif;
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --radius-card: 16px;
+    --radius-pill: 999px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  [hidden] { display: none !important; }
+  html { background: var(--ink); }
+  body { min-height: 100vh; background: var(--ink); color: var(--text); font-family: var(--font-ui); font-size: 15px; line-height: 1.5;
+         -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+         padding: env(safe-area-inset-top) 16px calc(32px + env(safe-area-inset-bottom)); }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
+  button:focus-visible, input:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 3px; }
+
+  /* Logo：和電腦版同一組線條，echo 那一筆用強調色。 */
+  .logo { display: block; height: 20px; }
+  .logo path, .logo circle { fill: none; stroke: var(--paper); stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+  .logo .echo { stroke: var(--accent); }
+  .logo-large { height: 56px; }
+
+  /* 頂列 */
+  header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; height: 56px; margin: 0 -16px; padding: 0 16px;
+           background: rgba(12, 15, 20, 0.86); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+  header h1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 600; letter-spacing: -0.2px; }
+  .icon-button { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 -10px; border-radius: 50%; color: var(--muted); }
+  .icon-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-button:active { background: var(--surface); }
+
+  /* 按鈕 */
+  .primary-button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 28px; border-radius: var(--radius-pill);
+                    background: var(--paper); color: var(--ink); font-size: 15px; font-weight: 600; transition: transform 240ms var(--ease); }
+  .primary-button:active { transform: scale(0.98); }
+  .quiet-button { min-height: 36px; padding: 0 16px; border-radius: var(--radius-pill); color: var(--muted); font-size: 14px; }
+  .quiet-button:active { background: var(--surface); }
+  .pill { min-height: 32px; padding: 0 14px; border-radius: var(--radius-pill); background: var(--surface-raised); color: var(--text); font-size: 13px; font-weight: 500; }
+  .pill.on { background: var(--paper); color: var(--ink); }
+
+  /* 置中的單一畫面：登入、加入主畫面、連結電腦、沒有權限 */
+  .hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: calc(100vh - 140px); text-align: center; }
+  .hero h2 { margin-top: 16px; font-size: 24px; font-weight: 600; letter-spacing: -0.5px; }
+  .hero p { max-width: 300px; color: var(--muted); }
+  .hero .primary-button { width: min(100%, 320px); margin-top: 16px; }
+  .hero .note { font-size: 12px; }
+  .steps { display: grid; gap: 12px; width: min(100%, 320px); margin-top: 8px; text-align: left; }
+  .step { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--radius-card); background: var(--surface); color: var(--text); font-size: 14px; }
+  .step b { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-raised); font-size: 12px; font-weight: 600; }
+  .step svg { flex: none; width: 20px; height: 20px; margin-left: auto; fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .code-input { width: min(100%, 320px); min-height: 48px; padding: 0 16px; border: 0; border-radius: var(--radius-card); background: var(--surface-raised);
+                color: var(--text); font: inherit; font-size: 14px; }
+  .code-input::placeholder { color: var(--muted); }
+  .account { display: inline-flex; align-items: center; gap: 8px; padding: 6px 6px 6px 16px; border-radius: var(--radius-pill); background: var(--surface); font-size: 14px; }
+
+  /* 提示列（電腦版 .notice） */
+  .notice { display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 4px 0 12px; padding: 8px 16px; border-radius: var(--radius-card);
+            background: var(--surface); color: var(--muted); font-size: 13px; }
+  .notice .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+
+  /* 任務列（電腦版 .job-row）：剪輯中左邊一條強調色 */
+  .jobs { display: grid; gap: 4px; }
+  .job { display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 8px 10px 10px; border-radius: var(--radius-card); text-align: left; }
+  .job:active { background: var(--surface); }
+  .job.live { box-shadow: inset 2px 0 0 var(--accent); }
+  .thumb { flex: none; width: 48px; height: 85px; border-radius: 10px; overflow: hidden; background: var(--surface-raised); }
+  .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .job-text { flex: 1; min-width: 0; }
+  .job-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; letter-spacing: -0.1px; }
+  .job-status { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--muted); font-size: 12px; }
+  .job-status .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .job-status.done .dot { background: var(--ok); }
+  .job-status.running .dot { background: var(--info); }
+  .job-status.queued .dot { background: var(--warn); }
+  .job-status.failed .dot { background: var(--danger); }
+  .job-status.running { color: var(--text); }
+  .job .pill { flex: none; }
+  .empty { padding: 48px 16px; color: var(--muted); text-align: center; }
+
+  /* 看片頁 */
+  .player { display: block; width: 100%; max-height: 70vh; margin-top: 4px; border-radius: var(--radius-card); background: #000; }
+  .meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 2px; }
+  .versions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .follow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 12px 12px 12px 16px;
+            border-radius: var(--radius-card); background: var(--surface); }
+  .muted { color: var(--muted); }
+
+  /* 設定：一列一項，左標題右內容 */
+  .group { margin-top: 8px; border-radius: var(--radius-card); background: var(--surface); overflow: hidden; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 52px; padding: 0 16px; text-align: left; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 14px; }
+  .row.danger { color: var(--danger); }
+
+  /* 短暫提示 */
+  .toast { position: fixed; left: 16px; right: 16px; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 10; padding: 12px 16px; border-radius: var(--radius-card);
+           background: #1B1E24; color: var(--text); font-size: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+           opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
+  .toast.show { opacity: 1; transform: none; }
+</style>
+<script src="config.js"></script>
+<script src="logic.js"></script>
+</head>
+<body>
+<header>
+  <button class="icon-button" id="back" hidden aria-label="返回"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <svg class="logo" id="brand" viewBox="0 0 206 100" role="img" aria-label="ekko">
+    <path d="M20 60H60A20 20 0 1 0 55.3 72.9"/>
+    <path d="M78 20V80M101 40L78 60L101 80"/>
+    <path class="echo" d="M134 20V80M111 40L134 60L111 80"/>
+    <circle cx="166" cy="60" r="20"/>
+  </svg>
+  <h1 id="title"></h1>
+  <button class="icon-button" id="openSettings" hidden aria-label="設定"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</header>
+<main id="view"></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
