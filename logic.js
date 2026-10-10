@@ -88,7 +88,29 @@
     return person ? `${person}的 ${device}` : `我的 ${device}`;
   };
 
-  const api = { readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  // 版本清單：新的在上。不是接著上一版改的（岔出去的）才寫「從 vN 改」。舊格式只有檔名，當成有小檔。
+  const versionLines = (job) => {
+    const versions = (job && job.versions) || [];
+    return versions.map((v, i) => {
+      const previous = i > 0 ? versions[i - 1].id : null;
+      const branched = v.parent != null && v.parent !== previous;
+      const summary = v.summary || '';
+      return { id: v.id, ready: v.ready !== false, text: branched ? `從 v${v.parent} 改：${summary}` : summary };
+    }).reverse();
+  };
+  const pendingLines = (pending) => (pending || []).map((p, i) =>
+    p.building ? `剪輯中：${p.summary}` : `排隊中：${p.summary}${i >= 2 ? `（前面還有 ${i} 筆）` : ''}`);
+
+  // 送出修改後的狀態（電腦寫的 outbox 回覆）。
+  const sendStatus = (reply) => {
+    if (!reply) return '已送出，等電腦收到…';
+    if (reply.status === 'rejected') return `沒送成：${reply.reason || '請再送一次'}`;
+    if (reply.status === 'held') return '電腦收到了，但這支在電腦上被中止，要在電腦按「繼續」才會開始';
+    return reply.position > 0 ? `電腦收到了，排隊中・前面還有 ${reply.position} 筆` : '電腦收到了，馬上開始改';
+  };
+  const inboxName = (device, nowMs) => `${device}-${nowMs}.json`;
+
+  const api = { versionLines, pendingLines, sendStatus, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

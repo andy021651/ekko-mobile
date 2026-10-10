@@ -90,7 +90,7 @@ async function loadFolder() {
   const named = Object.fromEntries(files.map((f) => [f.name, f]));
   state.mac = named['mac.json'] ? await readJSON(named['mac.json'].id).catch(() => null) : null;
   state.index = named['index.json'] ? await readJSON(named['index.json'].id).catch(() => null) : { jobs: [] };
-  state.files = { jobs: named.jobs && named.jobs.id, devices: named.devices && named.devices.id };
+  state.files = { jobs: named.jobs && named.jobs.id, devices: named.devices && named.devices.id, inbox: named.inbox && named.inbox.id, outbox: named.outbox && named.outbox.id };
   // 每次重新整理只列一次 jobs/，各任務的檔案用到才列、這一輪內重複用。
   state.jobFolders = state.files.jobs ? Object.fromEntries((await listFolder(state.files.jobs)).map((f) => [f.name, f.id])) : {};
   state.jobFiles = {};
@@ -110,13 +110,50 @@ function deviceId() {
   return id;
 }
 
-async function ensureDevicesFolder() {
-  if (state.files.devices) return state.files.devices;
+// 「Ekko 手機」底下的子資料夾（devices、inbox）：沒有就建。
+async function ensureFolder(name) {
+  if (state.files[name]) return state.files[name];
   const created = await api('files', { fields: 'id' }, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'devices', mimeType: 'application/vnd.google-apps.folder', parents: [state.folder] }) });
-  state.files.devices = created.id;
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [state.folder] }) });
+  state.files[name] = created.id;
   return created.id;
 }
+
+async function createJSON(folderId, name, value) {
+  const boundary = 'ekko' + Date.now();
+  const meta = JSON.stringify({ name, parents: [folderId], mimeType: 'application/json' });
+  const multipart = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(value)}\r\n--${boundary}--`;
+  return api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id', {},
+    { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: multipart });
+}
+
+// ---- 送修改：寫一份到 inbox/，電腦每 30 秒收一次，回覆寫在 outbox/ 同檔名 ----
+const sends = () => (store.get('sends') || []).filter((one) => Date.now() - one.at < 86400000);
+async function sendRevision(jobId, from, text) {
+  const file = L.inboxName(deviceId(), Date.now());
+  await createJSON(await ensureFolder('inbox'), file, { job: jobId, from, text, device: deviceId() });
+  store.set('sends', [...sends(), { file, job: jobId, at: Date.now(), reply: null }]);
+  // 送出的人剪好要收到通知：還沒按「通知我」就順手打開（沒允許通知就算了）。
+  if (!following(jobId)) await toggleFollow(jobId).catch(() => {});
+}
+
+// 讀電腦的回覆，讀完就刪掉自己的那份。
+async function readReplies() {
+  const waiting = sends().filter((one) => !one.reply);
+  if (!waiting.length || !state.files.outbox) return;
+  const files = await listFolder(state.files.outbox).catch(() => []);
+  const all = sends();
+  for (const one of all) {
+    const found = !one.reply && files.find((f) => f.name === one.file);
+    if (!found) continue;
+    one.reply = await readJSON(found.id).catch(() => null);
+    if (one.reply) api(`files/${found.id}`, {}, { method: 'DELETE' }).catch(() => {});
+  }
+  store.set('sends', all);
+}
+const latestSend = (jobId) => sends().filter((one) => one.job === jobId).pop() || null;
+
+async function ensureDevicesFolder() { return ensureFolder('devices'); }
 
 async function loadDevice() {
   const folder = await ensureDevicesFolder();
@@ -274,6 +311,7 @@ function showNoAccess() {
 
 // ---- 任務清單 ----
 async function showList() {
+  state.viewing = null;
   header('', { settings: true });
   const view = [];
   const notice = offlineNotice();
@@ -330,7 +368,8 @@ async function posterURL(jobId) {
 }
 
 // ---- 看片 ----
-async function showJob(jobId) {
+async function showJob(jobId, chosen) {
+  state.viewing = { id: jobId, chosen };
   const job = ((state.index && state.index.jobs) || []).find((j) => j.id === jobId);
   if (!job) return showList();
   history.replaceState(null, '', `${location.pathname}${location.search}#job=${jobId}`);
@@ -338,40 +377,90 @@ async function showJob(jobId) {
   const view = [];
   const notice = offlineNotice();
   if (notice) view.push(notice);
+  await readReplies().catch(() => {});
   const files = await jobFiles(jobId).catch(() => ({}));
-  const versions = (job.versions || []).filter((v) => files[`v${v.id}.mp4`]);
-  const meta = el('div', 'meta');
-  const status = el('div', `job-status ${job.status}`);
-  status.append(el('span', 'dot'), el('span', null, L.statusLabel(job)));
-  meta.append(status);
-  if (versions.length) {
+  const lines = L.versionLines(job);
+  const playable = lines.filter((v) => v.ready && files[`v${v.id}.mp4`]);
+  // 預設看最新一版（有手機用小檔的）；送修改就改正在看的這一版。
+  const current = lines.find((v) => v.id === chosen) || playable[0] || lines[0] || null;
+
+  if (current && files[`v${current.id}.mp4`]) {
     const player = el('video', 'player');
     player.controls = true;
     player.playsInline = true;
     player.preload = 'metadata';
     posterURL(jobId).then((url) => { if (url) player.poster = url; });
-    const play = async (version) => { await shareToken(); player.src = `drive-media/${files[`v${version.id}.mp4`]}`; };
-    if (versions.length > 1) {
-      const chips = el('div', 'versions');
-      versions.forEach((version, i) => {
-        const chip = el('button', 'pill' + (i === versions.length - 1 ? ' on' : ''), `v${version.id}`);
-        chip.onclick = () => { chips.querySelectorAll('.pill').forEach((c) => c.classList.remove('on')); chip.classList.add('on'); play(version); };
-        chips.append(chip);
-      });
-      meta.append(chips);
-    }
-    view.push(player, meta);
-    play(versions[versions.length - 1]);
-  } else {
-    view.push(meta);
-    if (job.status === 'done') view.push(el('p', 'muted', '手機用的檔案還在準備，稍後再看。'));
+    shareToken().then(() => { player.src = `drive-media/${files[`v${current.id}.mp4`]}`; });
+    view.push(player);
+  } else if (job.status === 'done') {
+    view.push(el('p', 'muted pad', '手機用的檔案還在準備，稍後再看。'));
   }
+  const meta = el('div', 'meta');
+  const status = el('div', `job-status ${job.status}`);
+  status.append(el('span', 'dot'), el('span', null, L.statusLabel(job)));
+  meta.append(status);
+  view.push(meta);
+
+  // 版本清單：點一行換那一版。
+  if (lines.length) {
+    const list = el('div', 'group versions-list');
+    for (const v of lines) {
+      const row = el('button', 'version' + (current && v.id === current.id ? ' on' : ''));
+      row.append(el('b', null, `v${v.id}`), el('span', 'version-text', v.text || '—'));
+      if (!(v.ready && files[`v${v.id}.mp4`])) row.append(el('span', 'version-wait', '準備中'));
+      row.onclick = () => {
+        if (!(v.ready && files[`v${v.id}.mp4`])) return toast('這一版手機用的檔案還在準備');
+        showJob(jobId, v.id);
+      };
+      list.append(row);
+    }
+    for (const text of L.pendingLines(job.pending)) {
+      const row = el('div', 'version pending');
+      row.append(el('span', 'dot'), el('span', 'version-text', text));
+      list.append(row);
+    }
+    view.push(list);
+  }
+
+  // 修改框：寫好送回電腦，電腦照著改出新的一版。
+  const box = el('div', 'revise');
+  const input = el('textarea', 'revise-input');
+  input.rows = 3;
+  input.maxLength = 2000;
+  input.placeholder = '想改哪裡？例如：第二句字幕放大、結尾音樂小聲一點';
+  const draftKey = `draft-${jobId}`;
+  input.value = store.get(draftKey) || '';
+  input.oninput = () => store.set(draftKey, input.value);
+  const actions = el('div', 'revise-actions');
+  actions.append(el('span', 'muted small', current ? `改 v${current.id}` : ''));
+  const send = el('button', 'primary-button small', '送出修改');
+  send.onclick = async () => {
+    const text = input.value.trim();
+    if (!text) return toast('請寫要改哪裡');
+    send.disabled = true;
+    try {
+      await sendRevision(jobId, current ? current.id : null, text);
+      store.drop(draftKey);
+      toast('已送出');
+      showJob(jobId, current && current.id);
+    } catch (e) {
+      send.disabled = false;
+      toast(e.message);
+    }
+  };
+  actions.append(send);
+  box.append(input, actions);
+  const last = latestSend(jobId);
+  if (last) box.append(el('p', 'revise-status' + (last.reply && last.reply.status === 'rejected' ? ' alert' : ''), L.sendStatus(last.reply)));
+  if (L.isOffline(state.mac, Date.now())) box.append(el('p', 'muted small', '電腦離線中，開機後才會開始改'));
+  view.push(box);
+
   if (job.status === 'queued' || job.status === 'running') {
     const on = following(jobId);
     const row = el('div', 'follow');
     const pill = el('button', 'pill' + (on ? ' on' : ''), on ? '會通知' : '通知我');
     pill.setAttribute('aria-pressed', String(on));
-    pill.onclick = () => toggleFollow(jobId).then(() => showJob(jobId)).catch((e) => toast(e.message));
+    pill.onclick = () => toggleFollow(jobId).then(() => showJob(jobId, current && current.id)).catch((e) => toast(e.message));
     row.append(el('span', null, '剪好時通知'), pill);
     view.push(row);
   }
@@ -487,7 +576,17 @@ if ('serviceWorker' in navigator) {
 }
 // 清單畫面：開著時每 30 秒更新一次；回到 App（從背景切回來）時、在最上面往下拉時也更新。
 const onList = () => state.folder && !$('title').textContent && !$('openSettings').hidden;
-const refreshList = () => { if (onList()) loadFolder().then(showList).catch(() => {}); };
+const refreshList = () => {
+  if (onList()) return loadFolder().then(showList).catch(() => {});
+  // 看片頁：更新進度與電腦的回覆；正在打字時不重畫，免得打斷。
+  const typing = document.activeElement && document.activeElement.classList.contains('revise-input');
+  const video = document.querySelector('video');
+  const playing = video && !video.paused;
+  if (state.viewing && !typing && !playing) {
+    const { id, chosen } = state.viewing;
+    loadFolder().then(() => showJob(id, chosen)).catch(() => {});
+  }
+};
 setInterval(() => { if (!document.hidden) refreshList(); }, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshList(); });
 let pullFrom = null;

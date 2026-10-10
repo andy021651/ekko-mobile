@@ -111,6 +111,28 @@
             border-radius: var(--radius-card); background: var(--surface); }
   .muted { color: var(--muted); }
 
+  /* 版本清單與修改框 */
+  .versions-list { margin-top: 0; }
+  .version { display: flex; align-items: baseline; gap: 10px; width: 100%; min-height: 44px; padding: 12px 16px; text-align: left; font-size: 14px; }
+  .version + .version { border-top: 1px solid var(--line); }
+  .version b { flex: none; font-weight: 600; color: var(--muted); }
+  .version.on b { color: var(--accent); }
+  .version.on .version-text { color: var(--text); }
+  .version-text { flex: 1; min-width: 0; color: var(--muted); }
+  .version-wait { flex: none; color: var(--muted); font-size: 12px; }
+  .version.pending { align-items: center; }
+  .version.pending .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+  .revise { margin-top: 12px; padding: 12px; border-radius: var(--radius-card); background: var(--surface); }
+  .revise-input { display: block; width: 100%; min-height: 72px; padding: 10px 12px; border: 0; border-radius: 12px; background: var(--surface-raised);
+                  color: var(--text); font: inherit; font-size: 15px; resize: vertical; }
+  .revise-input::placeholder { color: var(--muted); }
+  .revise-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+  .primary-button.small { min-height: 40px; padding: 0 20px; font-size: 14px; }
+  .primary-button:disabled { opacity: 0.5; }
+  .revise-status { margin-top: 10px; color: var(--muted); font-size: 13px; }
+  .revise-status.alert { color: var(--danger); }
+  .small { font-size: 12px; }
+  .pad { padding: 24px 2px; }
   /* 設定：一列一項，左標題右內容 */
   .group { margin-top: 8px; border-radius: var(--radius-card); background: var(--surface); overflow: hidden; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 52px; padding: 0 16px; text-align: left; }
