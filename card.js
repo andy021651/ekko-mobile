@@ -14,12 +14,16 @@ function openLineCard(jobId, version, lines, at, player) {
   const vv = window.visualViewport;
   const lift = () => {
     card.style.bottom = vv ? `${L.keyboardInset(window.innerHeight, vv.height, vv.offsetTop)}px` : '0px';
+    // 卡片最高到看得到的範圍（鍵盤打開時變矮），太高就可以捲。
+    card.style.maxHeight = `${(vv ? vv.height : window.innerHeight) - 24}px`;
+    if (typeof refit === 'function') refit();
     // 全螢幕時進度條移到卡片正上方，改的時候看得到。
     const controls = document.querySelector('.stage-full .stage-controls');
     if (controls) controls.style.bottom = `${Math.max(0, window.innerHeight - card.getBoundingClientRect().top)}px`;
   };
   if (vv) { vv.addEventListener('resize', lift); vv.addEventListener('scroll', lift); }
   const finish = (play) => {
+    card.querySelector('.trim-panel')?.stop();
     if (vv) { vv.removeEventListener('resize', lift); vv.removeEventListener('scroll', lift); }
     card.remove();
     document.body.classList.remove('marking');
@@ -37,7 +41,12 @@ function openLineCard(jobId, version, lines, at, player) {
     player.style.maxHeight = `${Math.max(160, card.getBoundingClientRect().top - 24)}px`;
     window.scrollTo({ top: Math.max(0, $('stage').getBoundingClientRect().top + window.scrollY - 8) });
   };
-  const refit = () => { if (card.isConnected && card.offsetHeight !== fitted) { fitted = card.offsetHeight; fit(); } };
+  const refit = () => {
+    if (!card.isConnected) return;
+    // 卡片比螢幕高（例如展開剪點）：改成可以上下捲（這時往下滑收起卡片不作用，用「取消」）。
+    card.classList.toggle('tall', card.scrollHeight > (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 24);
+    if (card.offsetHeight !== fitted) { fitted = card.offsetHeight; fit(); }
+  };
   // 跳到那一句：影片還沒準備好（iPhone 常見）就等準備好再跳，沒跳成再試一次，免得卡片寫這句、影片停在別句。
   const seekTo = (t) => {
     const go = () => { try { player.currentTime = t; } catch (_) {} };
@@ -48,6 +57,7 @@ function openLineCard(jobId, version, lines, at, player) {
     const line = lines[i];
     const saved = readSheet(jobId, version).find((e) => e.text === line.text && Math.abs(e.at - line.at) < 0.05) || {};
     let files = saved.files || [];
+    let trim = saved.trim || null;
     let cut = !!saved.cut, broll = saved.broll || null, source = saved.source || '', linkPrev = !!saved.prev, linkNext = !!saved.next;
     seekTo(line.at);
     // 點字選範圍（只做這幾個字）：先點開頭、再點結尾；同一個字點兩次清掉。a、b 是 tokens 的位置。
@@ -175,9 +185,9 @@ function openLineCard(jobId, version, lines, at, player) {
     // 記進修改單；超過 30 項不記，回傳 false。
     const remember = () => {
       const entry = { text: line.text, at: line.at, cut, broll, current: line.broll || null, note: note.value.trim(), replace: true, files,
-                      source, prev: linkPrev ? L.neighborOf(lines, i, 'prev') : null, next: linkNext ? L.neighborOf(lines, i, 'next') : null, part: part() };
+                      source, prev: linkPrev ? L.neighborOf(lines, i, 'prev') : null, next: linkNext ? L.neighborOf(lines, i, 'next') : null, part: part(), trim };
       const sheet = readSheet(jobId, version);
-      if ((cut || broll || entry.note || files.length) && !L.canAddToSheet(sheet, entry)) { toast('修改單一次最多 30 項，先送出這些再記'); return false; }
+      if ((cut || broll || entry.note || files.length || trim) && !L.canAddToSheet(sheet, entry)) { toast('修改單一次最多 30 項，先送出這些再記'); return false; }
       saveSheet(jobId, version, L.putSheet(sheet, entry));
       return true;
     };
@@ -186,14 +196,26 @@ function openLineCard(jobId, version, lines, at, player) {
     paint();
     // 這一句的附件（移除這句時不帶）。
     const attach = attachField(files, (next) => { files = next; refit(); });
-    card.replaceChildren(el('div', 'card-handle'), nav, quote, partRow, choiceRow, explain, linkRow, sourceRow, addNote, note, attach, actions);
+    // 剪點：平常收成一顆「✂ 剪點」，按了才展開音波（那一版有電腦做好的音波才有）。
+    const trimBox = el('div', 'trim-box');
+    const trimToggle = el('button', 'quiet-button card-add-note', trim ? `✂ 剪點：${L.trimText(trim)}` : '✂ 剪點');
+    trimToggle.hidden = !line.clip;
+    trimToggle.onclick = () => {
+      if (trimBox.firstChild) { trimBox.firstChild.stop(); trimBox.replaceChildren(); refit(); return; }
+      trimBox.replaceChildren(buildTrimPanel({ jobId, version, k: i, clip: line.clip, trim, onReady: refit, onChange: (next) => {
+        trim = next;
+        trimToggle.textContent = trim ? `✂ 剪點：${L.trimText(trim)}` : '✂ 剪點';
+      } }));
+      refit();
+    };
+    card.replaceChildren(el('div', 'card-handle'), nav, quote, partRow, choiceRow, explain, linkRow, sourceRow, trimToggle, trimBox, addNote, note, attach, actions);
     refit();
   };
   render(Math.max(0, at));
   // 往下滑收起卡片（和「取消」一樣）；拉不夠放開就彈回去。點按鈕不受影響：移動超過 8 點才算在拉。
   let drag = null;
   card.addEventListener('pointerdown', (event) => {
-    if (event.target.closest('textarea')) return;
+    if (event.target.closest('textarea, .trim-wave')) return;
     drag = { id: event.pointerId, y: event.clientY, dy: 0, pulling: false };
   });
   card.addEventListener('pointermove', (event) => {
@@ -217,6 +239,8 @@ function openLineCard(jobId, version, lines, at, player) {
   card.addEventListener('pointerup', release);
   card.addEventListener('pointercancel', release);
   document.body.append(card);
+  // 卡片內容變高變矮（展開剪點、音波畫好、加附件）都重新檢查能不能捲、影片要縮多少。
+  if (window.ResizeObserver) new ResizeObserver(() => refit()).observe(card);
   lift();
   // 全螢幕時卡片半透明疊在影片下半部；平常時影片縮到卡片上方放得下的高度，再捲到最上面：整個畫面都看得到。
   if (document.querySelector('.stage-full')) { card.classList.add('over-video'); return; }

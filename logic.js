@@ -173,6 +173,29 @@
     return `${label} ${action}，${link}`;
   };
 
+  // ---- 音波剪點（毛片秒數，和電腦版一樣） ----
+  const hundredth = (n) => Math.round(n * 100) / 100;
+  // 新的剪點記成 {start: {from, to}, end: {from, to}}，只留有動的那邊；都沒動回傳 null。
+  const makeTrim = (clip, start, end) => {
+    const trim = {};
+    if (Math.abs(start - clip.start) >= 0.005) trim.start = { from: clip.start, to: hundredth(start) };
+    if (Math.abs(end - clip.end) >= 0.005) trim.end = { from: clip.end, to: hundredth(end) };
+    return trim.start || trim.end ? trim : null;
+  };
+  const trimText = (trim) => ['start', 'end'].filter((side) => trim && trim[side]).map((side) => {
+    const delta = trim[side].to - trim[side].from;
+    return `${side === 'start' ? '開頭' : '結尾'}往${delta < 0 ? '前' : '後'} ${Math.abs(delta).toFixed(2)} 秒`;
+  }).join('、');
+  // 拖到哪裡：原本前後 1.5 秒內、不小於 0、和另一個剪點至少隔 0.2 秒（電腦也這樣擋）。
+  const clampCut = (side, value, clip, other) => {
+    const original = side === 'start' ? clip.start : clip.end;
+    let v = Math.min(original + 1.5, Math.max(original - 1.5, Math.max(0, value)));
+    v = side === 'start' ? Math.min(v, other - 0.2) : Math.max(v, other + 0.2);
+    return hundredth(v);
+  };
+  const timeAtX = (x, width, from, to) => hundredth(from + (Math.min(width, Math.max(0, x)) / width) * (to - from));
+  const xAtTime = (t, width, from, to) => ((t - from) / (to - from)) * width;
+
   // ---- 附件 ----
   const ATTACH_EXT = ['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp', 'mov', 'mp4', 'm4v', 'm4a', 'mp3', 'wav', 'aac'];
   const MB = 1024 * 1024;
@@ -368,9 +391,11 @@
     // 只做這幾個字（part）：跟著畫面、動畫或說明；選到整句等於沒選；移除這句、不要畫面不帶。
     const part = typeof entry.part === 'string' ? entry.part.trim() : '';
     if (part && part !== entry.text && !entry.cut && entry.broll !== 'remove' && (next.broll || next.note)) next.part = part;
+    // 剪點（音波上拖的）：只改剪點也算一筆；移除這句不帶。
+    if (!entry.cut && entry.trim && (entry.trim.start || entry.trim.end)) next.trim = entry.trim;
     // 附件（第 4 批）：只附檔也算一筆；移除這句不帶附件。
     if (!entry.cut && entry.files && entry.files.length) next.files = entry.files;
-    return next.cut || next.broll || next.note || next.files ? next : null;
+    return next.cut || next.broll || next.note || next.files || next.trim ? next : null;
   };
   // 記進修改單：同一句合成一筆。replace（卡片「記下來」）整句換成這次的選擇；否則移除／換畫面以這次為準、說明接在後面。
   const putSheet = (sheet, entry) => {
@@ -384,7 +409,7 @@
     const old = (sheet || []).find((e) => sameLine(e, entry));
     let merged = { ...entry };
     if (old && !entry.replace) {
-      const pick = (e) => ({ broll: e.broll, current: e.current, source: e.source, prev: e.prev, next: e.next, part: e.part });
+      const pick = (e) => ({ broll: e.broll, current: e.current, source: e.source, prev: e.prev, next: e.next, part: e.part, trim: e.trim });
       const choice = entry.cut ? { cut: true } : entry.broll ? pick(entry) : old.cut ? { cut: true } : pick(old);
       merged = { text: old.text, at: old.at, ...choice, note: [old.note, entry.note].filter(Boolean).join('；'), files: [...(old.files || []), ...(entry.files || [])] };
     } else if (old) {
@@ -420,6 +445,7 @@
       if (kept(e.prev)) item.prev = bare(e.prev);
       if (kept(e.next)) item.next = bare(e.next);
       if (e.part) item.part = { text: e.part };
+      if (e.trim) item.trim = e.trim;
       if (e.note) item.note = e.note;
       if (names && e.files && e.files.length) item.files = e.files.map((f) => ({ name: names[f.fid], size: f.size }));
       return [item];
@@ -436,8 +462,9 @@
       : e.broll && e.broll === e.current ? `重做${BROLL_WORD[e.broll]}`
       : e.broll ? `換成${BROLL_WORD[e.broll]}` : '';
     const extra = (e.source ? `（${SOURCE_WORD[e.source]}）` : '') + (e.prev ? '・連到上一句' : '') + (e.next ? '・連到下一句' : '') + (e.part ? `・只做「${e.part}」` : '');
-    const attached = !e.cut && e.files && e.files.length ? `${what + extra ? '・' : ''}附 ${e.files.length} 個檔` : '';
-    const tail = e.cut ? what : [what + extra + attached, e.note].filter(Boolean).join('：');
+    const trimmed = !e.cut && e.trim ? `${what + extra ? '・' : ''}剪點：${trimText(e.trim)}` : '';
+    const attached = !e.cut && e.files && e.files.length ? `${what + extra + trimmed ? '・' : ''}附 ${e.files.length} 個檔` : '';
+    const tail = e.cut ? what : [what + extra + trimmed + attached, e.note].filter(Boolean).join('：');
     return `${clock(e.at)}「${quote}」${tail}`;
   };
   // 沒送成：放回送出的那份；現在的修改單已經記了同一句就以現在的為準。
@@ -447,7 +474,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { wordTokens, partText, rangeLabel, changeSpan, changeText, planProblem, withoutFiles, attachProblem, safeUploadName, sizeText, uploadPlan, isRestore, restoreEntry, droppedLabel, subtitleSRT, gainText, pendingRows, jobActions, commandBody, commandStatus, reportPreview, isOrder, moveLine, orderEntry, orderOf, neighborOf, changedLines, draftBack, sameLine, lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { makeTrim, trimText, clampCut, timeAtX, xAtTime, wordTokens, partText, rangeLabel, changeSpan, changeText, planProblem, withoutFiles, attachProblem, safeUploadName, sizeText, uploadPlan, isRestore, restoreEntry, droppedLabel, subtitleSRT, gainText, pendingRows, jobActions, commandBody, commandStatus, reportPreview, isOrder, moveLine, orderEntry, orderOf, neighborOf, changedLines, draftBack, sameLine, lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

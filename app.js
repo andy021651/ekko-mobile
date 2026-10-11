@@ -66,8 +66,16 @@ async function api(path, params = {}, init = {}) {
   return params.alt === 'media' ? r : r.json();
 }
 
+// 一次最多 1000 個，多的照 nextPageToken 讀完。
 async function listFolder(folderId) {
-  return (await api('files', { q: `'${folderId}' in parents and trashed=false`, fields: 'files(id,name,mimeType)', pageSize: '1000' })).files;
+  const all = [];
+  let pageToken = '';
+  do {
+    const page = await api('files', { q: `'${folderId}' in parents and trashed=false`, fields: 'nextPageToken,files(id,name,mimeType)', pageSize: '1000', ...(pageToken ? { pageToken } : {}) });
+    all.push(...(page.files || []));
+    pageToken = page.nextPageToken || '';
+  } while (pageToken);
+  return all;
 }
 
 async function readJSON(fileId) { return (await api(`files/${fileId}`, { alt: 'media' })).json(); }

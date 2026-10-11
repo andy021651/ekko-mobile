@@ -85,7 +85,8 @@
   .notice .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 
   /* 任務列（電腦版 .job-row）：剪輯中左邊一條強調色 */
-  .jobs { display: grid; gap: 4px; }
+  /* 欄寬固定是螢幕寬（minmax(0, 1fr)）：不換行的長片名才不會把整個清單撐寬、可以左右拖。 */
+  .jobs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .job { display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 8px 10px 10px; border-radius: var(--radius-card); text-align: left; }
   .job:active { background: var(--surface); }
   .job.live { box-shadow: inset 2px 0 0 var(--accent); }
@@ -163,10 +164,12 @@
   .line-card, .bottom-panel { touch-action: none; transition: transform 200ms var(--ease); }
   .line-card.dragging { transition: none; }
   .line-card textarea, .bottom-panel textarea { touch-action: auto; }
+  .line-card, .bottom-panel { max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
+  .line-card.tall { touch-action: pan-y; }
   .card-handle { justify-self: center; width: 36px; height: 4px; margin-bottom: 2px; border-radius: 2px; background: rgba(236, 238, 242, 0.25); }
   .line-card.over-video { background: rgba(21, 24, 30, 0.84); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
   .line-card, .bottom-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 8px 16px calc(12px + env(safe-area-inset-bottom));
-               border-radius: 20px 20px 0 0; background: #15181E; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4); display: grid; gap: 8px; }
+               border-radius: 20px 20px 0 0; background: #15181E; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4); display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   /* 卡片開著：影片縮小，整個畫面留在卡片上方看得到 */
   .marking .player { object-fit: contain; }
   .card-divider { width: 1px; height: 20px; margin: 0 2px; background: var(--line); }
@@ -188,6 +191,13 @@
   .card-part .quiet-button { min-height: 32px; padding: 0 6px; }
   .card-explain { font-size: 13px; line-height: 1.45; }
   .card-play { font-variant-numeric: tabular-nums; color: var(--text); }
+  .trim-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 4px 0; }
+  .trim-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .trim-label { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .trim-wave { width: 100%; height: 56px; border-radius: 8px; background: var(--surface-raised); touch-action: pan-y; }
+  .trim-buttons { display: flex; gap: 6px; }
+  .trim-buttons .pill { min-height: 44px; min-width: 52px; }
+  .trim-panel .quiet-button { justify-self: start; padding: 0 4px; }
   .sentences-head { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 8px 0 16px; }
   .sentences-toggle { min-height: 44px; font-size: 14px; font-weight: 500; text-align: left; }
   .sentence { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px 16px; border-top: 1px solid var(--line); text-align: left; font-size: 14px; }
@@ -203,7 +213,7 @@
   .sentence.cut .sentence-text { color: var(--muted); text-decoration: line-through; }
   .sentences .revise-actions { padding: 8px 16px 12px; border-top: 1px solid var(--line); }
   .pad-x { padding: 4px 16px 8px; }
-  .attach-field { display: grid; gap: 6px; }
+  .attach-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .attach-add { justify-self: start; min-height: 36px; padding: 0 4px; }
   .attach-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .attach-chip { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 4px 4px 10px; border-radius: var(--radius-pill); background: var(--surface-raised); font-size: 12px; }
@@ -254,8 +264,8 @@
            opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
   .toast.show { opacity: 1; transform: none; }
 </style>
-<script src="config.js?v=202610120900"></script>
-<script src="logic.js?v=202610120900"></script>
+<script src="config.js?v=202610121200"></script>
+<script src="logic.js?v=202610121200"></script>
 </head>
 <body>
 <header>
@@ -271,11 +281,12 @@
 </header>
 <main id="view"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="attach.js?v=202610120900"></script>
-<script src="card.js?v=202610120900"></script>
-<script src="sentences.js?v=202610120900"></script>
-<script src="queue.js?v=202610120900"></script>
-<script src="tools.js?v=202610120900"></script>
-<script src="app.js?v=202610120900"></script>
+<script src="attach.js?v=202610121200"></script>
+<script src="trim.js?v=202610121200"></script>
+<script src="card.js?v=202610121200"></script>
+<script src="sentences.js?v=202610121200"></script>
+<script src="queue.js?v=202610121200"></script>
+<script src="tools.js?v=202610121200"></script>
+<script src="app.js?v=202610121200"></script>
 </body>
 </html>
