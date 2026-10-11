@@ -227,7 +227,8 @@ function openLineCard(jobId, version, lines, at, player) {
     // 少用的收成一排小按鈕：說明、剪點、附檔（按了才展開）。
     const tools = el('div', 'card-tools');
     tools.append(addNote, trimToggle, attach);
-    card.replaceChildren(el('div', 'card-handle'), nav, quote, partRow, choiceRow, explain, linkRow, sourceRow, tools, note, trimBox, actions);
+    // 照操作順序：句子 → 四個選項 → 這次會改什麼 → 第二層（延伸、來源、只做幾個字）→ 說明、剪點、附檔。
+    card.replaceChildren(el('div', 'card-handle'), nav, quote, choiceRow, explain, linkRow, sourceRow, partRow, tools, note, trimBox, actions);
     refit();
   };
   render(Math.max(0, at));

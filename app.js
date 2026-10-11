@@ -376,9 +376,11 @@ async function showList() {
     const thumb = el('div', 'thumb');
     const text = el('div', 'job-text');
     const status = el('div', `job-status ${job.status}`);
-    const when = L.ago(job.updatedAt, Date.now());
-    status.append(el('span', 'dot'), el('span', null, when ? `${L.statusLabel(job)}・${when}` : L.statusLabel(job)));
+    // 第二行：最新版本號、狀態、時間；第三行：最新一版改了什麼（同一位講者剪很多支時分得出來）。
+    const info = L.jobLines(job, L.ago(job.updatedAt, Date.now()));
+    status.append(el('span', 'dot'), el('span', null, info.status));
     text.append(el('div', 'job-title', job.title), status);
+    if (info.summary) text.append(el('div', 'job-summary', info.summary));
     row.append(thumb, text);
     // 剪輯中、排隊中：清單上直接按「通知我」，不用點進去。
     if (job.status === 'running' || job.status === 'queued') {
@@ -526,6 +528,16 @@ async function watchSend() {
 }
 setInterval(() => { if (!document.hidden) watchSend(); }, 5000);
 
+// ---- 看片頁：往下捲清單時影片縮小、固定在上面（邊看邊點句子） ----
+let miniTick = 0;
+window.addEventListener('scroll', () => {
+  if (miniTick) return;
+  miniTick = requestAnimationFrame(() => {
+    miniTick = 0;
+    document.body.classList.toggle('video-mini', !!document.getElementById('stage') && window.scrollY > 80);
+  });
+}, { passive: true });
+
 // ---- 自動換新版 ----
 // 網站更新後手機常會沿用舊檔好幾分鐘（iPhone 主畫面的網頁 App 更久）。打開、切回前景時看一次 version.json（不走快取），
 // 版本不同就把網頁重新抓一次再重新載入。程式檔的網址帶版本號（index.html 的 ?v=），換版後一定抓到新的。
@@ -565,7 +577,9 @@ function showSettings() {
       const next = prompt('這支手機的名稱（電腦上會看到）', (state.device && state.device.name) || '');
       if (next) { await saveDevice({ name: next.slice(0, 40) }).catch((e) => toast(e.message)); showSettings(); }
     }),
-    row('剪好通知', state.device && state.device.subscription ? '已開啟' : '開啟', () => enablePush().then(() => { toast('通知已開啟'); showSettings(); }).catch((e) => toast(e.message))));
+    // 已開：寫「已開啟 ✓」；還沒開：右邊是一個看得出能按的「打開」。
+    row('剪好通知', state.device && state.device.subscription ? '已開啟 ✓' : '打開 ›', () => enablePush().then(() => { toast('通知已開啟'); showSettings(); }).catch((e) => toast(e.message)),
+      state.device && state.device.subscription ? '' : 'action'));
   const more = el('div', 'group');
   more.append(row('連結其他電腦', '', () => showPairing()));
   if (state.folders.length > 1) more.append(row('換一台電腦', '', () => { store.drop('folder'); store.drop('pair'); start(); }));

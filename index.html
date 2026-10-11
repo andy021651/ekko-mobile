@@ -134,8 +134,14 @@
   .revise-status.alert { color: var(--danger); }
   /* 修改頁：這裡要改、卡片、修改單 */
   /* 自己的播放器 */
-  .stage { position: relative; margin-top: 4px; border-radius: var(--radius-card); overflow: hidden; background: #000; }
-  .stage .player { margin-top: 0; border-radius: 0; }
+  /* 影片固定在標題列下面：最高半個畫面，往下捲清單時縮小（body.video-mini），邊看邊點句子。 */
+  .stage { position: sticky; top: 56px; z-index: 4; margin-top: 4px; border-radius: var(--radius-card); overflow: hidden; background: #000; }
+  .stage .player { margin-top: 0; border-radius: 0; max-height: 50vh; object-fit: contain; transition: max-height 200ms var(--ease); }
+  .video-mini .stage .player { max-height: 30vh; }
+  .video-mini .stage-mark { bottom: 50px; min-height: 36px; padding: 0 12px; font-size: 13px; }
+  /* 影片本身已經有字幕：逐句字幕只在修改卡片打開時顯示（正在改的那句）。 */
+  .stage-caption { display: none; }
+  .marking .stage-caption:not(:empty) { display: block; }
   .stage-caption { position: absolute; top: 10px; left: 10px; right: 10px; padding: 4px 10px; border-radius: var(--radius-pill); width: fit-content; max-width: calc(100% - 20px);
                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: rgba(0, 0, 0, 0.5); color: #fff; font-size: 13px; pointer-events: none; }
   .stage-caption:empty { display: none; }
@@ -151,7 +157,7 @@
   .stage-marks { position: absolute; inset: 0; pointer-events: none; }
   .stage-dot { position: absolute; top: 10px; width: 24px; height: 24px; margin-left: -12px; pointer-events: auto; }
   .stage-dot::after { content: ""; position: absolute; left: 7px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
-  .stage-full { position: fixed; inset: 0; z-index: 8; margin: 0; border-radius: 0; display: flex; align-items: center; }
+  .stage-full { position: fixed; top: 0; inset: 0; z-index: 8; margin: 0; border-radius: 0; display: flex; align-items: center; }
   .stage-full .player { width: 100%; height: 100%; max-height: none !important; object-fit: contain; }
   .stage-full .stage-controls { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
   .stage-full .stage-mark { bottom: calc(64px + env(safe-area-inset-bottom)); }
@@ -187,7 +193,8 @@
   .line-card textarea { -webkit-user-select: text; user-select: text; }
   .card-quote .word { border-radius: 4px; cursor: pointer; }
   .card-quote .word.picked { background: var(--accent); color: var(--ink); }
-  .card-part { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+  .card-part { display: flex; align-items: center; gap: 8px; }
+  .card-part:empty { display: none; }
   .card-part .quiet-button { min-height: 32px; padding: 0 6px; }
   .card-explain { font-size: 13px; line-height: 1.45; }
   .card-play { font-variant-numeric: tabular-nums; color: var(--text); }
@@ -213,11 +220,16 @@
   .sentence.cut .sentence-text { color: var(--muted); text-decoration: line-through; }
   .sentences .revise-actions { padding: 8px 16px 12px; border-top: 1px solid var(--line); }
   .pad-x { padding: 4px 16px 8px; }
+  .job-summary { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+  .row.action .value { color: var(--accent); }
+  /* 最下方那一條和清單之間留空，捲到底時最後一句不被擋住。 */
+  #view > .group.sentences { margin-bottom: 16px; }
   .meta .job-actions { flex-wrap: wrap; justify-content: flex-end; }
   .version-chip { font-variant-numeric: tabular-nums; }
   .sentences-hint { margin-left: auto; padding-right: 8px; }
   .sentences-head .quiet-button { flex: none; }
-  .sheet-bar.quiet { background: var(--surface-raised); color: var(--text); }
+  /* 沒有修改單時的樣子：實心底（不能半透明，固定在下方時底下的句子會透上來），細邊與陰影和內容分開。 */
+  .sheet-bar.quiet { background: #22262E; color: var(--text); border: 1px solid rgba(236, 238, 242, 0.12); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
   .card-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
   .card-tools .card-add-note { justify-self: auto; }
   .card-tools .attach-field { display: contents; }
@@ -274,8 +286,8 @@
            opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
   .toast.show { opacity: 1; transform: none; }
 </style>
-<script src="config.js?v=202610121400"></script>
-<script src="logic.js?v=202610121400"></script>
+<script src="config.js?v=202610121510"></script>
+<script src="logic.js?v=202610121510"></script>
 </head>
 <body>
 <header>
@@ -291,13 +303,13 @@
 </header>
 <main id="view"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="attach.js?v=202610121400"></script>
-<script src="trim.js?v=202610121400"></script>
-<script src="card.js?v=202610121400"></script>
-<script src="sentences.js?v=202610121400"></script>
-<script src="queue.js?v=202610121400"></script>
-<script src="tools.js?v=202610121400"></script>
-<script src="panels.js?v=202610121400"></script>
-<script src="app.js?v=202610121400"></script>
+<script src="attach.js?v=202610121510"></script>
+<script src="trim.js?v=202610121510"></script>
+<script src="card.js?v=202610121510"></script>
+<script src="sentences.js?v=202610121510"></script>
+<script src="queue.js?v=202610121510"></script>
+<script src="tools.js?v=202610121510"></script>
+<script src="panels.js?v=202610121510"></script>
+<script src="app.js?v=202610121510"></script>
 </body>
 </html>

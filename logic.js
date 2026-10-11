@@ -12,6 +12,16 @@
     return '沒剪成';
   };
 
+  // 任務清單每一支的第二、三行：最新版本號＋狀態＋時間；最新一版改了什麼（拿掉「手機・誰：」）。同一位講者剪很多支時分得出來。
+  const jobLines = (job, when) => {
+    const versions = (job && job.versions) || [];
+    const latest = versions.length ? versions[versions.length - 1] : null;
+    const status = [latest ? `v${latest.id}` : '', statusLabel(job), when].filter(Boolean).join('・');
+    // 只有第一版（初剪）不寫摘要，沒有資訊量。
+    const summary = latest && latest.summary && versions.length > 1 ? String(latest.summary).replace(/^手機・[^：]*：/, '') : '';
+    return { status, summary };
+  };
+
   const minutesSince = (mac, nowMs) => {
     const seen = Date.parse(mac && mac.lastSeen);
     return Number.isNaN(seen) ? Infinity : (nowMs - seen) / 60000;
@@ -474,7 +484,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { makeTrim, trimText, clampCut, timeAtX, xAtTime, wordTokens, partText, rangeLabel, changeSpan, changeText, planProblem, withoutFiles, attachProblem, safeUploadName, sizeText, uploadPlan, isRestore, restoreEntry, droppedLabel, subtitleSRT, gainText, pendingRows, jobActions, commandBody, commandStatus, reportPreview, isOrder, moveLine, orderEntry, orderOf, neighborOf, changedLines, draftBack, sameLine, lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { jobLines, makeTrim, trimText, clampCut, timeAtX, xAtTime, wordTokens, partText, rangeLabel, changeSpan, changeText, planProblem, withoutFiles, attachProblem, safeUploadName, sizeText, uploadPlan, isRestore, restoreEntry, droppedLabel, subtitleSRT, gainText, pendingRows, jobActions, commandBody, commandStatus, reportPreview, isOrder, moveLine, orderEntry, orderOf, neighborOf, changedLines, draftBack, sameLine, lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
