@@ -1,6 +1,6 @@
 // Ekko 手機版：用 Google 登入，讀共用給自己的「Ekko 手機」資料夾，看任務清單、播放成片、收剪好通知。
 // 主要路徑：任務清單 → 點進去看片。設定（帳號、通知、登出）收在右上角。
-// 連線：在電腦 Ekko「更多 → 連結手機」掃 QR Code（網址帶 ?pair=資料夾編號），或貼上連結碼。
+// 連線：在電腦 Ekko「更多 → 在手機上用 Ekko…」掃 QR Code（網址帶 ?pair=資料夾編號），或貼上連結碼。
 'use strict';
 const L = window.EkkoLogic;
 const CONFIG = window.EKKO_CONFIG;
@@ -280,7 +280,7 @@ function showSignIn(returnedError) {
     title: returnedError ? '登入沒有完成' : pair && pair.mac ? `連到「${pair.mac}」` : '在手機看剪輯',
     text: returnedError ? '再試一次就好。' : '用 Google 帳號登入，看剪輯進度、收剪好通知、在手機上看成片。',
     action: { label: '用 Google 登入', run: () => signIn(store.get('account') ? '' : 'select_account') },
-    note: '登入時會看到「Google 尚未驗證這個應用程式」，按「繼續」就好',
+    note: '登入時會看到「Google 尚未驗證這個應用程式」，按「繼續」就好。如果顯示「存取遭封鎖」，請把你的 Gmail 交給 Ekko 管理員加進登入名單',
   });
 }
 
@@ -289,7 +289,7 @@ function showPairing(problem) {
   input.placeholder = '貼上連結碼';
   input.autocomplete = 'off';
   input.spellcheck = false;
-  hero({ title: '連結電腦', text: problem || '在電腦 Ekko 打開「更多 → 連結手機」，用相機掃 QR Code；或複製連結碼貼在這裡。', extra: [input],
+  hero({ title: '連結電腦', text: problem || '在電腦 Ekko 打開「更多 → 在手機上用 Ekko…」，用相機掃 QR Code；或複製連結碼貼在這裡。', extra: [input],
     action: { label: '連結', run: () => {
       const pair = L.parsePairCode(input.value);
       if (!pair) return toast('看不懂這個連結碼，請從電腦上複製完整的連結');
