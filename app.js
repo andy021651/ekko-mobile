@@ -379,11 +379,23 @@ async function posterURL(jobId) {
 
 // ---- 看片 ----
 // 「這裡要改」的卡片：當下那一句、現在有沒有畫面、三種改法。卡片開著時不重畫看片頁（refreshList 看 .line-card）。
+// 開著時影片縮小貼在上面（body.marking），記下來只更新修改單那幾行，影片不重新載入。
 function openLineCard(jobId, version, lines, at, player) {
   document.querySelector('.line-card')?.remove();
   const card = el('div', 'line-card');
-  // 取消：收起卡片；換句時可能已經記下幾筆，重畫讓修改單跟上（不自動播放）。
-  const close = () => { card.remove(); showJob(jobId, version); };
+  document.body.classList.add('marking');
+  // 鍵盤跳出來時卡片貼在鍵盤正上方。
+  const vv = window.visualViewport;
+  const lift = () => { card.style.bottom = vv ? `${L.keyboardInset(window.innerHeight, vv.height, vv.offsetTop)}px` : '0px'; };
+  if (vv) { vv.addEventListener('resize', lift); vv.addEventListener('scroll', lift); }
+  const finish = (play) => {
+    if (vv) { vv.removeEventListener('resize', lift); vv.removeEventListener('scroll', lift); }
+    card.remove();
+    document.body.classList.remove('marking');
+    player.style.maxHeight = '';
+    paintSheet(jobId, version, lines);
+    if (play) player.play().catch(() => {});
+  };
   const render = (i) => {
     const line = lines[i];
     const saved = readSheet(jobId, version).find((e) => e.text === line.text && Math.abs(e.at - line.at) < 0.05) || {};
@@ -398,28 +410,34 @@ function openLineCard(jobId, version, lines, at, player) {
     const move = (to) => { if (remember()) render(to); };
     prev.onclick = () => move(i - 1);
     next.onclick = () => move(i + 1);
-    nav.append(prev, el('span', 'muted small', L.clock(line.at)), next);
+    nav.append(prev, el('span', 'muted small', `${L.clock(line.at)}・現在${L.brollNow(line) === '沒有' ? '沒有畫面' : L.brollNow(line)}`), next);
     const quote = el('p', 'card-quote', `「${line.text}」`);
-    const now = el('p', 'muted small', `現在：${L.brollNow(line)}`);
+    // 一列選完：移除這句｜換畫面／換動畫（原本就有的叫「重做」）／不要畫面。
+    const choiceRow = el('div', 'card-choices');
     const cutButton = el('button', 'pill', '移除這句');
+    choiceRow.append(cutButton, el('span', 'card-divider'));
     const choices = [['footage', '畫面'], ['animation', '動畫'], ...(line.broll ? [['remove', '不要畫面']] : [])];
-    const brollRow = el('div', 'card-choices');
-    brollRow.append(el('span', 'muted small', '換畫面'));
     const chips = choices.map(([key, label]) => {
-      const chip = el('button', 'pill', line.broll === key ? `重做${label}` : label);
+      const chip = el('button', 'pill', key === 'remove' ? label : line.broll === key ? `重做${label}` : `換${label}`);
       chip.onclick = () => { broll = broll === key ? null : key; cut = false; paint(); };
-      brollRow.append(chip);
+      choiceRow.append(chip);
       return [key, chip];
     });
+    // 說明平常收成一行，要寫才展開（卡片比較矮）。
     const note = el('textarea', 'revise-input card-note');
     note.rows = 2;
     note.maxLength = 500;
     note.placeholder = '寫說明（可以用語音輸入）';
     note.value = saved.note || '';
+    const addNote = el('button', 'quiet-button card-add-note', '＋ 加說明');
+    const showNote = (focus) => { addNote.hidden = true; note.hidden = false; if (focus) note.focus(); };
+    note.hidden = !note.value;
+    addNote.hidden = !!note.value;
+    addNote.onclick = () => showNote(true);
     const paint = () => {
-      // 移除這句時不用寫說明：停用說明欄，免得寫了以為有送。
+      // 移除這句時不用寫說明：收起說明，免得寫了以為有送。
       note.disabled = cut;
-      note.placeholder = cut ? '移除這句時不用寫說明' : '寫說明（可以用語音輸入）';
+      addNote.disabled = cut;
       cutButton.classList.toggle('on', cut);
       cutButton.setAttribute('aria-pressed', String(cut));
       chips.forEach(([key, chip]) => { chip.classList.toggle('on', broll === key); chip.setAttribute('aria-pressed', String(broll === key)); });
@@ -428,7 +446,7 @@ function openLineCard(jobId, version, lines, at, player) {
     const actions = el('div', 'revise-actions');
     const cancel = el('button', 'quiet-button', '取消');
     const keep = el('button', 'primary-button small', '記下來');
-    cancel.onclick = close;
+    cancel.onclick = () => finish(false);
     // 記進修改單；超過 30 項不記，回傳 false。
     const remember = () => {
       const entry = { text: line.text, at: line.at, cut, broll, current: line.broll || null, note: note.value.trim(), replace: true };
@@ -437,17 +455,42 @@ function openLineCard(jobId, version, lines, at, player) {
       saveSheet(jobId, version, L.putSheet(sheet, entry));
       return true;
     };
-    keep.onclick = () => {
-      if (!remember()) return;
-      card.remove();
-      showJob(jobId, version, { resumeAt: line.at });
-    };
+    keep.onclick = () => { if (remember()) finish(true); };
     actions.append(cancel, keep);
     paint();
-    card.replaceChildren(nav, quote, now, cutButton, brollRow, note, actions);
+    card.replaceChildren(nav, quote, choiceRow, addNote, note, actions);
   };
   render(Math.max(0, at));
   document.body.append(card);
+  lift();
+  // 影片縮到卡片上方放得下的高度，再捲到最上面：整個畫面都看得到。
+  player.style.maxHeight = `${Math.max(160, card.getBoundingClientRect().top - 24)}px`;
+  window.scrollTo({ top: Math.max(0, player.getBoundingClientRect().top + window.scrollY - 8) });
+}
+
+// 修改單那幾行和最下方那一條：記下來、刪掉時只更新這裡，不重畫整頁。
+function paintSheet(jobId, version, sentences) {
+  const list = $('sheet'), bar = $('sheetBar'), input = document.querySelector('.revise > .revise-input');
+  if (!list || !bar) return;
+  const sheet = version != null ? readSheet(jobId, version) : [];
+  list.hidden = bar.hidden = !sheet.length;
+  if (input) input.placeholder = sheet.length ? '整支影片的意見（可以不寫）' : '想改哪裡？例如：第二句字幕放大、結尾音樂小聲一點';
+  bar.replaceChildren(el('span', null, `修改單・${sheet.length} 項`), el('span', null, '送出 ›'));
+  list.replaceChildren(el('p', 'muted small', `修改單・${sheet.length} 項`));
+  for (const entry of sheet) {
+    const row = el('div', 'sheet-row');
+    const jump = el('button', 'sheet-text', L.sheetLine(entry));
+    jump.onclick = () => {
+      const player = document.querySelector('video');
+      const at = sentences.findIndex((l) => l.text === entry.text && Math.abs(l.at - entry.at) < 0.05);
+      if (player && at >= 0) { player.pause(); openLineCard(jobId, version, sentences, at, player); }
+    };
+    const drop = el('button', 'icon-button', '×');
+    drop.setAttribute('aria-label', '刪掉這一筆');
+    drop.onclick = () => { saveSheet(jobId, version, L.dropSheet(readSheet(jobId, version), entry)); paintSheet(jobId, version, sentences); };
+    row.append(jump, drop);
+    list.append(row);
+  }
 }
 
 async function showJob(jobId, chosen, opts = {}) {
@@ -520,8 +563,6 @@ async function showJob(jobId, chosen, opts = {}) {
   input.rows = 3;
   input.maxLength = 2000;
   const version = current ? current.id : null;
-  const sheet = version != null ? readSheet(jobId, version) : [];
-  input.placeholder = sheet.length ? '整支影片的意見（可以不寫）' : '想改哪裡？例如：第二句字幕放大、結尾音樂小聲一點';
   const draftKey = `draft-${jobId}`;
   input.value = store.get(draftKey) || '';
   input.oninput = () => store.set(draftKey, input.value);
@@ -546,28 +587,10 @@ async function showJob(jobId, chosen, opts = {}) {
     }
   };
   actions.append(send);
-  // 修改單：邊看邊記的每一筆，點一筆回到那一句改，× 刪掉。
-  if (sheet.length) {
-    const list = el('div', 'sheet-list');
-    list.id = 'sheet';
-    list.append(el('p', 'muted small', `修改單・${sheet.length} 項`));
-    sheet.forEach((entry) => {
-      const row = el('div', 'sheet-row');
-      const jump = el('button', 'sheet-text', L.sheetLine(entry));
-      jump.onclick = () => {
-        const player = document.querySelector('video');
-        const at = sentences.findIndex((l) => l.text === entry.text && Math.abs(l.at - entry.at) < 0.05);
-        if (player && at >= 0) { player.pause(); openLineCard(jobId, version, sentences, at, player); }
-      };
-      const drop = el('button', 'icon-button', '×');
-      drop.setAttribute('aria-label', '刪掉這一筆');
-      drop.onclick = () => { saveSheet(jobId, version, L.dropSheet(readSheet(jobId, version), entry)); showJob(jobId, version); };
-      row.append(jump, drop);
-      list.append(row);
-    });
-    box.append(list);
-  }
-  box.append(input, actions);
+  // 修改單：邊看邊記的每一筆，點一筆回到那一句改，× 刪掉（內容由 paintSheet 填）。
+  const list = el('div', 'sheet-list');
+  list.id = 'sheet';
+  box.append(list, input, actions);
   const last = latestSend(jobId);
   if (last) {
     const line = el('p', 'revise-status');
@@ -577,12 +600,10 @@ async function showJob(jobId, chosen, opts = {}) {
   }
   if (L.isOffline(state.mac, Date.now())) box.append(el('p', 'muted small', '電腦離線中，開機後才會開始改'));
   view.push(box);
-  if (sheet.length) {
-    const bar = el('button', 'sheet-bar');
-    bar.append(el('span', null, `修改單・${sheet.length} 項`), el('span', null, '送出 ›'));
-    bar.onclick = () => $('sheet').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    view.push(bar);
-  }
+  const bar = el('button', 'sheet-bar');
+  bar.id = 'sheetBar';
+  bar.onclick = () => $('sheet').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  view.push(bar);
 
   if (job.status === 'queued' || job.status === 'running') {
     const on = following(jobId);
@@ -594,6 +615,7 @@ async function showJob(jobId, chosen, opts = {}) {
     view.push(row);
   }
   $('view').replaceChildren(...view);
+  paintSheet(jobId, version, sentences);
 }
 
 // 送出後的狀態一行：電腦收到的時間、前面還有幾筆、開始剪了沒。

@@ -133,17 +133,21 @@
   .revise-status.alert { color: var(--danger); }
   /* 修改頁：這裡要改、卡片、修改單 */
   .mark-button { width: 100%; margin-top: 12px; }
-  .line-card { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
-               border-radius: 20px 20px 0 0; background: #15181E; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4); display: grid; gap: 10px; }
+  .line-card { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 8px 16px calc(12px + env(safe-area-inset-bottom));
+               border-radius: 20px 20px 0 0; background: #15181E; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4); display: grid; gap: 8px; }
+  /* 卡片開著：影片縮小，整個畫面留在卡片上方看得到 */
+  .marking .player { object-fit: contain; }
+  .card-divider { width: 1px; height: 20px; margin: 0 2px; background: var(--line); }
+  .card-add-note { justify-self: start; min-height: 36px; padding: 0 4px; }
   .card-nav { display: flex; align-items: center; justify-content: space-between; }
   .card-nav .quiet-button { min-height: 44px; }
   .card-nav .quiet-button:disabled { opacity: 0.3; }
-  .card-quote { font-size: 16px; line-height: 1.5; }
-  .card-choices { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .line-card .pill { min-height: 44px; padding: 0 16px; font-size: 14px; }
-  .line-card > .pill { justify-self: start; }
+  .card-quote { font-size: 16px; line-height: 1.45; }
+  .card-choices { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .line-card .pill { min-height: 44px; padding: 0 12px; font-size: 14px; }
   .card-note { min-height: 56px; }
   .sheet-list { margin-bottom: 10px; }
+  .sheet-list[hidden], .sheet-bar[hidden], .card-note[hidden], .card-add-note[hidden] { display: none; }
   .sheet-row { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line); }
   .sheet-text { flex: 1; min-width: 0; min-height: 44px; padding: 10px 0; text-align: left; font-size: 14px; }
   .sheet-bar { position: sticky; bottom: calc(8px + env(safe-area-inset-bottom)); display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 48px;
@@ -163,8 +167,8 @@
            opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
   .toast.show { opacity: 1; transform: none; }
 </style>
-<script src="config.js?v=202610111420"></script>
-<script src="logic.js?v=202610111420"></script>
+<script src="config.js?v=202610111500"></script>
+<script src="logic.js?v=202610111500"></script>
 </head>
 <body>
 <header>
@@ -180,6 +184,6 @@
 </header>
 <main id="view"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="app.js?v=202610111420"></script>
+<script src="app.js?v=202610111500"></script>
 </body>
 </html>
