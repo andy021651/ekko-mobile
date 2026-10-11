@@ -105,6 +105,92 @@
   const pendingLines = (pending) => (pending || []).map((p, i) =>
     p.building ? `剪輯中：${p.summary}` : `排隊中：${p.summary}${i >= 2 ? `（前面還有 ${i} 筆）` : ''}`);
 
+  // 版本清單裡排隊中的修改：mine＝這支手機送的（只有自己的能取消、拿回來重改；剪輯中那筆不行）。
+  const pendingRows = (pending, device) => (pending || []).map((p, i) => ({
+    id: p.id, building: !!p.building, mine: !p.building && !!device && p.device === device,
+    text: p.building ? `剪輯中：${p.summary}` : `排隊中：${p.summary}${i >= 2 ? `（前面還有 ${i} 筆）` : ''}`,
+  }));
+  // 看片頁狀態列上能按的：剪輯中「中止」；剪輯中或排隊中「補充」；中止後排隊停住「繼續」；沒剪成（不含額度、登入）「重試」。
+  // 電腦整台暫停排隊只顯示文字（那是電腦主人的決定）。
+  const jobActions = (job, macPaused) => {
+    const running = job.status === 'running', queued = job.status === 'queued';
+    const ended = job.status === 'failed' || (job.status === 'stopped' && (job.reason || 'stopped') === 'stopped');
+    return { stop: running, late: running || queued, resume: !!job.held, retry: ended && !job.held && !!job.canContinue, pausedNote: !!macPaused && queued };
+  };
+  const commandBody = (action, jobId, extra) => ({ action, job: jobId, ...(extra || {}) });
+  const COMMAND_DONE = { unqueue: '已取消這筆修改', stop: '電腦已中止', resume: '已繼續，排隊的修改開始剪', retry: '已重新開始剪', late: '已記下補充，這一輪剪完會接著改', requeue: '已重新排進修改', remix: '已做成新的一版', export: '原畫質已放上雲端，同步完就能打開' };
+  const commandStatus = (reply) => {
+    if (!reply) return '已送到電腦，等電腦接手…';
+    if (reply.status === 'rejected') return `沒做成：${reply.reason || '請再試一次'}`;
+    if (reply.action === 'remix' && reply.version != null) return `已做成 v${reply.version}`;
+    return COMMAND_DONE[reply.action] || '電腦做好了';
+  };
+  // 字幕檔：和電腦 EkkoSubtitleSRT 同樣格式（只放有字、結束晚於開始的句子，照時間排）。
+  const srtClock = (seconds) => {
+    const total = Math.round(Math.max(0, seconds) * 1000);
+    const two = (n) => String(n).padStart(2, '0');
+    return `${two(Math.floor(total / 3600000))}:${two(Math.floor(total / 60000) % 60)}:${two(Math.floor(total / 1000) % 60)},${String(total % 1000).padStart(3, '0')}`;
+  };
+  const subtitleSRT = (lines) => (lines || [])
+    .filter((l) => String(l.text || '').trim() && l.end > l.at)
+    .sort((a, b) => a.at - b.at)
+    .map((l, i) => `${i + 1}\n${srtClock(l.at)} --> ${srtClock(l.end)}\n${String(l.text).trim()}\n\n`).join('');
+  const gainText = (db) => (db > 0 ? `+${db} dB` : `${db} dB`);
+
+  // ---- 附件 ----
+  const ATTACH_EXT = ['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp', 'mov', 'mp4', 'm4v', 'm4a', 'mp3', 'wav', 'aac'];
+  const MB = 1024 * 1024;
+  const extOf = (name) => { const m = String(name || '').match(/\.([A-Za-z0-9]{2,4})$/); return m ? m[1].toLowerCase() : ''; };
+  // 再加一個檔行不行：副檔名、單檔 500MB、最多 10 個、合計 2GB（電腦也這樣擋）。
+  const attachProblem = (list, file) => {
+    if (!(file.size > 0)) return '這個檔是空的';
+    if (!ATTACH_EXT.includes(extOf(file.name))) return '只能附照片、影片、錄音（jpg、png、heic、mov、mp4、m4a…）';
+    if (file.size > 500 * MB) return '單一檔案最多 500MB';
+    if ((list || []).length >= 10) return '一次最多附 10 個檔案';
+    if ((list || []).reduce((sum, f) => sum + f.size, 0) + file.size > 2048 * MB) return '一次最多 2GB';
+    return null;
+  };
+  // 上傳到雲端的檔名：序號-安全字元.副檔名（電腦只認這個格式）。
+  const safeUploadName = (i, name) => {
+    const ext = extOf(name);
+    const base = String(name).slice(0, String(name).length - ext.length - 1).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40);
+    return `${i}-${base}.${ext}`;
+  };
+  // 整張單（逐句＋整支）合起來：最多 10 個、2GB（電腦也這樣擋，先擋免得白傳）。
+  const planProblem = (plan) => {
+    const files = (plan && plan.files) || [];
+    if (files.length > 10) return '整張修改單最多附 10 個檔案，請拿掉幾個';
+    if (files.reduce((sum, f) => sum + f.size, 0) > 2048 * MB) return '整張修改單的附件最多 2GB，請拿掉幾個';
+    return null;
+  };
+  // 拿掉修改單的附件（留著「拿回來重改」用：附件電腦收下後就從手機刪了）；只剩附件的那筆整筆拿掉。
+  const withoutFiles = (sheet) => {
+    let dropped = false;
+    const kept = (sheet || []).map((e) => { if (!e.files) return e; dropped = true; const { files, ...rest } = e; return rest; })
+      .filter((e) => isOrder(e) || isRestore(e) || e.cut || e.broll || e.note);
+    return { sheet: kept, dropped };
+  };
+  const sizeText = (bytes) => (bytes >= MB ? `${Math.round((bytes / MB) * 10) / 10} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+  // 送出前排好要傳的檔：修改單逐句的附件在前、整支的在後，依序編號。
+  const uploadPlan = (sheet, overall) => {
+    const files = [];
+    const names = {};
+    const add = (f) => { if (names[f.fid]) return; names[f.fid] = safeUploadName(files.length + 1, f.name); files.push({ fid: f.fid, name: names[f.fid], size: f.size, original: f.name }); };
+    (sheet || []).forEach((e) => { if (!e.cut && e.files) e.files.forEach(add); });
+    (overall || []).forEach(add);
+    return { files, items: sheetItems(sheet, names), overall: (overall || []).map((f) => ({ name: names[f.fid], size: f.size })) };
+  };
+
+  // 引擎回報先顯示前 3 行（或 120 字），其餘點「更多」。
+  const reportPreview = (text, lines = 3) => {
+    const all = String(text || '');
+    const rows = all.split('\n');
+    let head = rows.slice(0, lines).join('\n');
+    if (head.length > 120) head = head.slice(0, 120);
+    const more = head.length < all.length;
+    return { text: more ? `${head}…` : head, more };
+  };
+
   // 電腦寫下的時間（手機的當地時間），例如 14:32:05。
   const clockText = (iso) => {
     const at = new Date(iso);
@@ -124,8 +210,9 @@
   };
   // 送出修改後的狀態：沒回覆＝還在雲端等電腦接手；回覆的時間就是電腦收到的那一刻。
   // 有 job（index 最新的樣子、indexAt 是 index 寫出的時間）就用它，沒有才用電腦收件當下的情況。
-  const sendStatus = (reply, job, indexAt) => {
-    if (!reply) return '已送到雲端，等電腦接手…';
+  // downloading：電腦回了「附件還在同步」，還不算收下。
+  const sendStatus = (reply, job, indexAt, downloading) => {
+    if (!reply) return downloading ? '已送到雲端，電腦正在下載附件…' : '已送到雲端，等電腦接手…';
     if (reply.status === 'rejected') return `沒送成：${reply.reason || '請再送一次'}`;
     const clock = clockText(reply.at);
     const got = clock ? `電腦 ${clock} 收到` : '電腦收到';
@@ -161,7 +248,7 @@
   // draft：卡片上正在改、還沒記下來的那一句：有選改法就換成空心點（pending），全部取消就先拿掉那句的點。
   const sheetMarks = (sheet, duration, draft) => {
     if (!(duration > 0)) return [];
-    const marks = (sheet || []).filter((e) => !(draft && sameLine(e, draft))).map((e) => ({ text: e.text, at: e.at, left: percent(e.at, duration) }));
+    const marks = (sheet || []).filter((e) => !isOrder(e) && !isRestore(e) && !(draft && sameLine(e, draft))).map((e) => ({ text: e.text, at: e.at, left: percent(e.at, duration) }));
     if (draft && (draft.cut || draft.broll || draft.note)) marks.push({ text: draft.text, at: draft.at, left: percent(draft.at, duration), pending: true });
     return marks.sort((a, b) => a.at - b.at);
   };
@@ -192,23 +279,75 @@
     return found;
   };
   const brollNow = (line) => (line && line.broll === 'footage' ? '有畫面' : line && line.broll === 'animation' ? '有動畫' : '沒有');
-  const sameLine = (a, b) => a.text === b.text && Math.abs(a.at - b.at) < 0.05;
+  // 修改單裡「調整順序」那一筆：{ text: '', at: -1, order: [{text, at}] }，排在最前面、不畫在進度條上，一張單只有一筆。
+  const isOrder = (e) => !!e && Array.isArray(e.order);
+  // 修改單裡「加回」的一筆：{ restore: {id, text, src, start}, text, at: 1e6 + id }，排在逐句後面、不畫在進度條上。
+  const isRestore = (e) => !!e && !!e.restore;
+  const restoreEntry = (d) => ({ restore: { id: d.id, text: d.text, src: d.src, start: d.start }, text: d.text, at: 1e6 + d.id });
+  const sameLine = (a, b) => {
+    if (isOrder(a) || isOrder(b)) return isOrder(a) && isOrder(b);
+    if (isRestore(a) || isRestore(b)) return isRestore(a) && isRestore(b) && a.restore.id === b.restore.id;
+    return a.text === b.text && Math.abs(a.at - b.at) < 0.05;
+  };
+  const droppedLabel = (d) => `毛片 ${d.src + 1}・${clock(d.start)}`;
+  const bare = (line) => ({ text: line.text, at: line.at });
+  // 第 i 句往上（-1）或往下（+1）移；超出頭尾不動。
+  const moveLine = (order, i, step) => {
+    const to = i + step;
+    if (i < 0 || i >= order.length || to < 0 || to >= order.length) return order.slice();
+    const next = order.slice();
+    [next[i], next[to]] = [next[to], next[i]];
+    return next;
+  };
+  // 調好的順序記成一筆；和原本一樣就不記（回傳 null）。
+  const orderEntry = (lines, order) => (order.length === lines.length && order.every((l, i) => sameLine(l, lines[i])) ? null : { text: '', at: -1, order: order.map(bare) });
+  const orderOf = (sheet, lines) => { const found = (sheet || []).find(isOrder); return found ? found.order : (lines || []).map(bare); };
+  const neighborOf = (lines, i, side) => { const line = (lines || [])[side === 'prev' ? i - 1 : i + 1]; return line ? bare(line) : null; };
+  // 這版改過的句子：上一版沒有這段字，或畫面不一樣。上一版沒有逐句清單就不標。
+  const changedLines = (prev, lines) => {
+    const found = new Set();
+    if (!prev || !prev.length) return found;
+    (lines || []).forEach((line, i) => {
+      const old = prev.find((p) => p.text === line.text);
+      if (!old || (old.broll || '') !== (line.broll || '')) found.add(i);
+    });
+    return found;
+  };
+  // 被拒時整支意見放回文字框：已經又打了新字就接在後面；已經在裡面就不重複。
+  const draftBack = (current, sent) => (!sent || (current || '').includes(sent) ? current || '' : [current, sent].filter(Boolean).join('\n'));
   // 整理成一筆：移除和換畫面只留一個（移除優先）；移除時不留說明（卡片上說明欄也停用）。三樣都沒有回傳 null。
+  // 畫面來源只跟「畫面」；連到上一句／下一句只跟畫面、動畫（不要畫面時不連）。
   const tidy = (entry) => {
+    if (isRestore(entry)) return restoreEntry(entry.restore);
+    if (isOrder(entry)) return entry.order.length > 1 ? { text: '', at: -1, order: entry.order.map(bare) } : null;
     const next = { text: entry.text, at: entry.at };
     if (entry.cut) next.cut = true;
-    else if (entry.broll) { next.broll = entry.broll; if (entry.current) next.current = entry.current; }
+    else if (entry.broll) {
+      next.broll = entry.broll;
+      if (entry.current) next.current = entry.current;
+      if (entry.broll === 'footage' && (entry.source === 'mine' || entry.source === 'stock')) next.source = entry.source;
+      if (entry.broll !== 'remove') { if (entry.prev) next.prev = bare(entry.prev); if (entry.next) next.next = bare(entry.next); }
+    }
     if (entry.note && !entry.cut) next.note = entry.note;
-    return next.cut || next.broll || next.note ? next : null;
+    // 附件（第 4 批）：只附檔也算一筆；移除這句不帶附件。
+    if (!entry.cut && entry.files && entry.files.length) next.files = entry.files;
+    return next.cut || next.broll || next.note || next.files ? next : null;
   };
   // 記進修改單：同一句合成一筆。replace（卡片「記下來」）整句換成這次的選擇；否則移除／換畫面以這次為準、說明接在後面。
   const putSheet = (sheet, entry) => {
+    if (isOrder(entry)) {
+      const others = (sheet || []).filter((e) => !isOrder(e));
+      const order = tidy(entry);
+      return order ? [order, ...others] : others;
+    }
+    if (isRestore(entry)) return [...(sheet || []).filter((e) => !sameLine(e, entry)), tidy(entry)].sort((a, b) => a.at - b.at);
     const rest = (sheet || []).filter((e) => !sameLine(e, entry));
     const old = (sheet || []).find((e) => sameLine(e, entry));
     let merged = { ...entry };
     if (old && !entry.replace) {
-      const choice = entry.cut ? { cut: true } : entry.broll ? { broll: entry.broll, current: entry.current } : old.cut ? { cut: true } : { broll: old.broll, current: old.current };
-      merged = { text: old.text, at: old.at, ...choice, note: [old.note, entry.note].filter(Boolean).join('；') };
+      const pick = (e) => ({ broll: e.broll, current: e.current, source: e.source, prev: e.prev, next: e.next });
+      const choice = entry.cut ? { cut: true } : entry.broll ? pick(entry) : old.cut ? { cut: true } : pick(old);
+      merged = { text: old.text, at: old.at, ...choice, note: [old.note, entry.note].filter(Boolean).join('；'), files: [...(old.files || []), ...(entry.files || [])] };
     } else if (old) {
       merged = { ...entry, text: old.text, at: old.at };
     }
@@ -222,22 +361,43 @@
   // 收件檔超過 64KB 電腦會略過、不回覆：留一點空間，60KB 以上就不送。
   const tooBigToSend = (body) => new TextEncoder().encode(JSON.stringify(body)).length > 60 * 1024;
   // 收件格式：移除只帶文字與秒數（說明不送，和電腦版一樣）。
-  const sheetItems = (sheet) => (sheet || []).map((e) => {
-    if (e.cut) return { kind: 'cut', text: e.text, at: e.at };
-    const item = { kind: 'line', text: e.text, at: e.at };
-    if (e.broll) item.broll = e.broll;
-    if (e.broll && e.current) item.current = e.current;
-    if (e.note) item.note = e.note;
-    return item;
-  });
+  // 順序拿掉同一張單移除的句子，剩不到兩句就不送順序。
+  // names：附件 fid → 上傳時的檔名（uploadPlan 給的）；沒給就不帶附件。
+  const sheetItems = (sheet, names) => {
+    const cuts = (sheet || []).filter((e) => e.cut);
+    return (sheet || []).flatMap((e) => {
+      if (isOrder(e)) {
+        const lines = e.order.filter((l) => !cuts.some((c) => sameLine(c, l))).map(bare);
+        return lines.length > 1 ? [{ kind: 'order', lines }] : [];
+      }
+      if (isRestore(e)) return [{ kind: 'restore', id: e.restore.id, text: e.restore.text }];
+      if (e.cut) return [{ kind: 'cut', text: e.text, at: e.at }];
+      const item = { kind: 'line', text: e.text, at: e.at };
+      if (e.broll) item.broll = e.broll;
+      if (e.broll && e.current) item.current = e.current;
+      if (e.source) item.source = e.source;
+      // 連到的那一句在同一張單被移除了就不連。
+      const kept = (ref) => ref && !cuts.some((c) => sameLine(c, ref));
+      if (kept(e.prev)) item.prev = bare(e.prev);
+      if (kept(e.next)) item.next = bare(e.next);
+      if (e.note) item.note = e.note;
+      if (names && e.files && e.files.length) item.files = e.files.map((f) => ({ name: names[f.fid], size: f.size }));
+      return [item];
+    });
+  };
   const BROLL_WORD = { footage: '畫面', animation: '動畫' };
+  const SOURCE_WORD = { mine: '我的素材', stock: '圖庫' };
   const sheetLine = (e) => {
+    if (isOrder(e)) return `調整順序（${e.order.length} 句）`;
+    if (isRestore(e)) return `加回「${e.text.length > 10 ? `${e.text.slice(0, 9)}…` : e.text}」`;
     const quote = e.text.length > 8 ? `${e.text.slice(0, 7)}…` : e.text;
     const what = e.cut ? '移除這句'
       : e.broll === 'remove' ? '不要畫面'
       : e.broll && e.broll === e.current ? `重做${BROLL_WORD[e.broll]}`
       : e.broll ? `換成${BROLL_WORD[e.broll]}` : '';
-    const tail = e.cut ? what : [what, e.note].filter(Boolean).join('：');
+    const extra = (e.source ? `（${SOURCE_WORD[e.source]}）` : '') + (e.prev ? '・連到上一句' : '') + (e.next ? '・連到下一句' : '');
+    const attached = !e.cut && e.files && e.files.length ? `${what + extra ? '・' : ''}附 ${e.files.length} 個檔` : '';
+    const tail = e.cut ? what : [what + extra + attached, e.note].filter(Boolean).join('：');
     return `${clock(e.at)}「${quote}」${tail}`;
   };
   // 沒送成：放回送出的那份；現在的修改單已經記了同一句就以現在的為準。
@@ -247,7 +407,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { planProblem, withoutFiles, attachProblem, safeUploadName, sizeText, uploadPlan, isRestore, restoreEntry, droppedLabel, subtitleSRT, gainText, pendingRows, jobActions, commandBody, commandStatus, reportPreview, isOrder, moveLine, orderEntry, orderOf, neighborOf, changedLines, draftBack, sameLine, lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
