@@ -81,7 +81,7 @@ function attachChips(list, onChange) {
 function attachField(list, onChange, label = '附檔') {
   const box = el('div', 'attach-field');
   const paint = (now) => {
-    const add = el('button', 'quiet-button attach-add', now.length ? `＋ ${label}（${now.length}）` : `＋ ${label}`);
+    const add = el('button', 'quiet-button attach-add', now.length ? `📎 ${label}（${now.length}）` : `📎 ${label}`);
     add.onclick = () => pickFiles(now, (next) => { onChange(next); paint(next); });
     box.replaceChildren(add, ...(now.length ? [attachChips(now, (next) => { onChange(next); paint(next); })] : []));
   };

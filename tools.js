@@ -4,22 +4,33 @@
 
 const EXPORT_LINK = (fileId) => `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
 
-// 狀態列上的「⋯」：剪好的任務、看得到的這一版才有。
+// 狀態列上的「⋯」：少用的都收在這裡（調音量、字幕檔、原畫質；剪輯中的中止；剪好通知我）。version 是看得到的這一版（沒有就只有通知、中止）。
 function versionToolsButton(job, version, sentences) {
-  if (!version) return null;
   const more = el('button', 'pill', '⋯');
-  more.setAttribute('aria-label', `v${version.id} 的更多選項`);
+  more.setAttribute('aria-label', '更多選項');
   more.onclick = () => openVersionTools(job, version, sentences);
   return more;
 }
 
 function openVersionTools(job, version, sentences) {
   const busy = job.status === 'running' || job.status === 'queued';
+  const can = L.jobActions(job, state.index && state.index.paused);
   bottomPanel((close) => {
-    const items = [el('p', 'muted small', `v${version.id}`)];
-    if (version.mixable && !busy) items.push(menuButton('調音量', () => { close(); openMixPanel(job, version); }));
-    if (sentences.length) items.push(menuButton('存字幕檔', () => { close(); saveSubtitles(job, version, sentences); }));
-    items.push(menuButton('原畫質', () => { close(); openExportPanel(job, version); }));
+    const items = [el('p', 'muted small', version ? `v${version.id}` : job.title)];
+    if (version && version.mixable && !busy) items.push(menuButton('調音量', () => { close(); openMixPanel(job, version); }));
+    if (version && sentences.length) items.push(menuButton('存字幕檔', () => { close(); saveSubtitles(job, version, sentences); }));
+    if (version) items.push(menuButton('原畫質', () => { close(); openExportPanel(job, version); }));
+    // 剪好通知我：送出修改時會自動打開，這裡可以關或手動開。
+    const on = following(job.id);
+    items.push(menuButton(on ? '剪好時不要通知我' : '剪好時通知我', () => { close(); toggleFollow(job.id).then(() => toast(on ? '不會通知了' : '剪好會通知你')).catch((e) => toast(e.message)); }));
+    // 中止帶著按下時剪輯中那一筆的編號：電腦晚收到、已經換剪下一筆時不會誤停。
+    if (can.stop) {
+      const building = (job.pending || []).find((p) => p.building);
+      items.push(menuButton('中止剪輯', () => {
+        close();
+        if (confirm('中止後這一輪的修改會退回，確定中止？')) sendCommand(job.id, 'stop', building && building.id != null ? { id: building.id } : {}).catch((e) => toast(e.message));
+      }, 'danger'));
+    }
     items.push(menuButton('關閉', close, 'muted'));
     return items;
   });

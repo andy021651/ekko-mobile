@@ -155,7 +155,7 @@ function openLineCard(jobId, version, lines, at, player) {
     note.maxLength = 500;
     note.placeholder = '寫說明（可以用語音輸入）';
     note.value = saved.note || '';
-    const addNote = el('button', 'quiet-button card-add-note', '＋ 加說明');
+    const addNote = el('button', 'quiet-button card-add-note', '＋ 說明');
     const showNote = (focus) => { addNote.hidden = true; note.hidden = false; if (focus) note.focus(); };
     note.hidden = !note.value;
     addNote.hidden = !!note.value;
@@ -224,7 +224,10 @@ function openLineCard(jobId, version, lines, at, player) {
       } }));
       refit();
     };
-    card.replaceChildren(el('div', 'card-handle'), nav, quote, partRow, choiceRow, explain, linkRow, sourceRow, trimToggle, trimBox, addNote, note, attach, actions);
+    // 少用的收成一排小按鈕：說明、剪點、附檔（按了才展開）。
+    const tools = el('div', 'card-tools');
+    tools.append(addNote, trimToggle, attach);
+    card.replaceChildren(el('div', 'card-handle'), nav, quote, partRow, choiceRow, explain, linkRow, sourceRow, tools, note, trimBox, actions);
     refit();
   };
   render(Math.max(0, at));
@@ -358,21 +361,28 @@ function paintMarks(jobId, version, sentences, draft) {
 }
 
 // 修改單那幾行和最下方那一條：記下來、刪掉時只更新這裡，不重畫整頁。
+// 最下方那一條與送出面板裡的修改單（面板開著才有 #sheet）。
 function paintSheet(jobId, version, sentences) {
-  const list = $('sheet'), bar = $('sheetBar'), input = document.querySelector('.revise > .revise-input');
-  if (!list || !bar) return;
+  const list = $('sheet'), bar = $('sheetBar'), input = document.querySelector('.send-panel .revise-input');
   const sheet = version != null ? readSheet(jobId, version) : [];
   paintMarks(jobId, version, sentences);
   $('sentences')?.repaint();
-  list.hidden = bar.hidden = !sheet.length;
+  if (bar) {
+    // 有修改單：主要按鈕「送出」；沒有：只寫整支影片的意見（安靜的樣子）。
+    const drafted = !!(store.get(`draft-${jobId}`) || overallFiles(jobId).length);
+    bar.classList.toggle('quiet', !sheet.length);
+    bar.replaceChildren(el('span', null, sheet.length ? `修改單・${sheet.length} 項` : drafted ? '整支意見（草稿）' : '寫整支影片的意見'), el('span', null, sheet.length || drafted ? '送出 ›' : '›'));
+  }
   if (input) input.placeholder = sheet.length ? '整支影片的意見（可以不寫）' : '想改哪裡？例如：第二句字幕放大、結尾音樂小聲一點';
-  bar.replaceChildren(el('span', null, `修改單・${sheet.length} 項`), el('span', null, '送出 ›'));
-  list.replaceChildren(el('p', 'muted small', `修改單・${sheet.length} 項`));
+  if (!list) return;
+  list.hidden = !sheet.length;
+  list.replaceChildren(el('p', 'muted small', `修改單・${sheet.length} 項（點一筆回到那一句）`));
   for (const entry of sheet) {
     const row = el('div', 'sheet-row');
     const jump = el('button', 'sheet-text', L.sheetLine(entry));
     jump.onclick = () => {
       // 調整順序那一筆：打開句子區的調整順序。
+      if (L.isOrder(entry) || L.isRestore(entry)) document.querySelector('.bottom-panel')?.close?.();
       if (L.isOrder(entry)) return $('sentences')?.startOrdering();
       if (L.isRestore(entry)) return $('sentences')?.showDropped();
       const player = document.querySelector('video');

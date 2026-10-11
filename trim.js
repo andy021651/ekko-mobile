@@ -67,6 +67,8 @@ function buildTrimPanel({ jobId, version, k, clip, trim, onChange, onReady }) {
       watching = requestAnimationFrame(watch);
     };
     const changed = () => onChange(L.makeTrim(clip, start, end));
+    // 依這句兩段音波裡最大聲的地方放大（同電腦版）：錄得小聲的毛片也看得出字在哪。
+    const loudest = Math.max(0.02, ...row.head.peaks, ...row.tail.peaks);
     const side = (name) => {
       const win = row[name === 'start' ? 'head' : 'tail'];
       const from = win.from, to = from + win.peaks.length / row.perSecond;
@@ -89,7 +91,7 @@ function buildTrimPanel({ jobId, version, k, clip, trim, onChange, onReady }) {
         g.fillStyle = 'rgba(255,255,255,0.06)';
         if (name === 'start') g.fillRect(0, 0, cutX, height); else g.fillRect(cutX, 0, width - cutX, height);
         win.peaks.forEach((p, i) => {
-          const x = (i / win.peaks.length) * width, h = Math.max(1, p * (height - 6));
+          const x = (i / win.peaks.length) * width, h = Math.max(1, Math.min(1, p / loudest) * (height - 6));
           const kept = name === 'start' ? x >= cutX : x <= cutX;
           g.fillStyle = kept ? (css.getPropertyValue('--text').trim() || '#eee') : 'rgba(236,238,242,0.25)';
           g.fillRect(x, (height - h) / 2, Math.max(1, width / win.peaks.length - 0.5), h);

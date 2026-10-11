@@ -213,6 +213,16 @@
   .sentence.cut .sentence-text { color: var(--muted); text-decoration: line-through; }
   .sentences .revise-actions { padding: 8px 16px 12px; border-top: 1px solid var(--line); }
   .pad-x { padding: 4px 16px 8px; }
+  .meta .job-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .version-chip { font-variant-numeric: tabular-nums; }
+  .sentences-hint { margin-left: auto; padding-right: 8px; }
+  .sentences-head .quiet-button { flex: none; }
+  .sheet-bar.quiet { background: var(--surface-raised); color: var(--text); }
+  .card-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
+  .card-tools .card-add-note { justify-self: auto; }
+  .card-tools .attach-field { display: contents; }
+  .card-tools .attach-chips { flex-basis: 100%; }
+  .version-panel .versions-list, .send-panel .sheet-list { margin: 0; }
   .attach-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .attach-add { justify-self: start; min-height: 36px; padding: 0 4px; }
   .attach-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -264,8 +274,8 @@
            opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
   .toast.show { opacity: 1; transform: none; }
 </style>
-<script src="config.js?v=202610121300"></script>
-<script src="logic.js?v=202610121300"></script>
+<script src="config.js?v=202610121400"></script>
+<script src="logic.js?v=202610121400"></script>
 </head>
 <body>
 <header>
@@ -281,12 +291,13 @@
 </header>
 <main id="view"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="attach.js?v=202610121300"></script>
-<script src="trim.js?v=202610121300"></script>
-<script src="card.js?v=202610121300"></script>
-<script src="sentences.js?v=202610121300"></script>
-<script src="queue.js?v=202610121300"></script>
-<script src="tools.js?v=202610121300"></script>
-<script src="app.js?v=202610121300"></script>
+<script src="attach.js?v=202610121400"></script>
+<script src="trim.js?v=202610121400"></script>
+<script src="card.js?v=202610121400"></script>
+<script src="sentences.js?v=202610121400"></script>
+<script src="queue.js?v=202610121400"></script>
+<script src="tools.js?v=202610121400"></script>
+<script src="panels.js?v=202610121400"></script>
+<script src="app.js?v=202610121400"></script>
 </body>
 </html>

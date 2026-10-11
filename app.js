@@ -188,7 +188,7 @@ async function readReplies() {
       if (one.text) {
         store.set(`draft-${one.job}`, L.draftBack(store.get(`draft-${one.job}`), one.text));
         // 正在看這支（可能正在打字、這一輪不重畫）：直接補進輸入框，免得下一個字把放回的內容蓋掉。
-        const input = document.querySelector('.revise > .revise-input');
+        const input = document.querySelector('.send-panel .revise-input');
         if (input && state.viewing && state.viewing.id === one.job) input.value = store.get(`draft-${one.job}`);
       }
       one.restored = true;
@@ -456,106 +456,44 @@ async function showJob(jobId, chosen, opts = {}) {
   } else if (job.status === 'done') {
     view.push(el('p', 'muted pad', '手機用的檔案還在準備，稍後再看。'));
   }
+  // 狀態列：左邊狀態；右邊版本（v3 ▾，點開版本面板）、補充／繼續／重試、⋯（調音量、字幕、原畫質、中止、剪好通知）。
+  const version = current ? current.id : null;
+  const versionInfo = current && (job.versions || []).find((v) => v.id === current.id);
   const meta = el('div', 'meta');
   const status = el('div', `job-status ${job.status}`);
   status.append(el('span', 'dot'), el('span', null, L.statusLabel(job)));
-  meta.append(status);
+  const right = el('div', 'job-actions');
+  if (lines.length) {
+    const chip = el('button', 'pill version-chip', current ? `v${current.id} ▾` : '版本 ▾');
+    chip.setAttribute('aria-label', '版本、排隊中的修改、剪輯回報');
+    chip.onclick = () => openVersionPanel(job, lines, current, files);
+    right.append(chip);
+  }
   const actionBar = jobActionBar(job);
-  // 這一版的更多選項（調音量、字幕檔、原畫質）：有手機用小檔的版本才有。
-  const tools = versionToolsButton(job, current && current.ready && files[`v${current.id}.mp4`] ? (job.versions || []).find((v) => v.id === current.id) : null, sentences);
-  if (tools) (actionBar || meta).append(tools);
-  if (actionBar) meta.append(actionBar);
+  if (actionBar) right.append(...actionBar.children);
+  right.append(versionToolsButton(job, current && current.ready && files[`v${current.id}.mp4`] ? versionInfo : null, sentences));
+  meta.append(status, right);
   view.push(meta);
   const waitNote = queueNotice(job);
   if (waitNote) view.push(waitNote);
-  const report = reportView(current && (job.versions || []).find((v) => v.id === current.id));
-  if (report) view.push(report);
-  const stagePlayer = view.find((n) => n.id === 'stage')?.querySelector('video');
-  if (sentences.length && stagePlayer) view.push(buildSentences({ jobId, version: current.id, sentences, previous, player: stagePlayer, dropped: linesData.dropped || [] }));
-
-  // 版本清單：點一行換那一版。
-  if (lines.length) {
-    const list = el('div', 'group versions-list');
-    for (const v of lines) {
-      const row = el('button', 'version' + (current && v.id === current.id ? ' on' : ''));
-      row.append(el('b', null, `v${v.id}`), el('span', 'version-text', v.text || '—'));
-      if (!(v.ready && files[`v${v.id}.mp4`])) row.append(el('span', 'version-wait', '準備中'));
-      row.onclick = () => {
-        if (!(v.ready && files[`v${v.id}.mp4`])) return toast('這一版手機用的檔案還在準備');
-        if (current && v.id !== current.id && readSheet(jobId, current.id).length) toast(`v${current.id} 的修改單先收起來，切回 v${current.id} 還在`);
-        showJob(jobId, v.id);
-      };
-      list.append(row);
-    }
-    list.append(...pendingViews(job));
-    view.push(list);
-  }
-
-  // 修改框：寫好送回電腦，電腦照著改出新的一版。
-  const box = el('div', 'revise');
-  const input = el('textarea', 'revise-input');
-  input.rows = 3;
-  input.maxLength = 2000;
-  const version = current ? current.id : null;
-  const draftKey = `draft-${jobId}`;
-  input.value = store.get(draftKey) || '';
-  input.oninput = () => store.set(draftKey, input.value);
-  const actions = el('div', 'revise-actions');
-  actions.append(el('span', 'muted small', current ? `改 v${current.id}` : ''));
-  const send = el('button', 'primary-button small', '送出修改');
-  send.onclick = async () => {
-    const text = input.value.trim();
-    const sending = version != null ? readSheet(jobId, version) : [];
-    const attached = overallFiles(jobId);
-    if (!text && !sending.length && !attached.length) return toast('請寫要改哪裡');
-    if (L.tooBigToSend({ text, items: L.sheetItems(sending) })) return toast('修改單太長了，請刪掉幾項或縮短說明，分兩次送');
-    send.disabled = true;
-    try {
-      await sendRevision(jobId, version, text, sending, attached);
-      store.drop(draftKey);
-      saveOverallFiles(jobId, []);
-      if (version != null) saveSheet(jobId, version, []);
-      toast('已送到雲端');
-      showJob(jobId, version);
-    } catch (e) {
-      send.disabled = false;
-      toast(e.message);
-    }
-  };
-  actions.append(send);
-  // 修改單：邊看邊記的每一筆，點一筆回到那一句改，× 刪掉（內容由 paintSheet 填）。
-  const list = el('div', 'sheet-list');
-  list.id = 'sheet';
-  // 整支影片的附件（照片、影片、錄音）。
-  box.append(list, input, attachField(overallFiles(jobId), (next) => saveOverallFiles(jobId, next), '附檔給整支'), actions);
+  // 送出後的狀態一行（電腦收到了沒、排第幾、開始剪了沒）。
   const last = latestSend(jobId);
   if (last) {
     const line = el('p', 'revise-status');
     line.id = 'reviseStatus';
-    box.append(line);
+    view.push(line);
     paintSendStatus(line, last, job);
   }
-  if (L.isOffline(state.mac, Date.now())) box.append(el('p', 'muted small', '電腦離線中，開機後才會開始改'));
-  // 這支手機沒開通知：先講清楚剪好不會跳通知、怎麼打開（從瀏覽器開的收不到，要從主畫面的 Ekko）。
-  if (!(state.device && state.device.subscription)) {
-    box.append(el('p', 'muted small', navigator.standalone === false
-      ? '從瀏覽器打開的收不到通知：請點主畫面上的 Ekko 圖示打開'
-      : '這支手機還沒開通知，剪好不會跳通知（設定 → 剪好通知）'));
-  }
-  view.push(box);
-  const bar = el('button', 'sheet-bar');
-  bar.id = 'sheetBar';
-  bar.onclick = () => $('sheet').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  view.push(bar);
-
-  if (job.status === 'queued' || job.status === 'running') {
-    const on = following(jobId);
-    const row = el('div', 'follow');
-    const pill = el('button', 'pill' + (on ? ' on' : ''), on ? '會通知' : '通知我');
-    pill.setAttribute('aria-pressed', String(on));
-    pill.onclick = () => toggleFollow(jobId).then(() => showJob(jobId, current && current.id)).catch((e) => toast(e.message));
-    row.append(el('span', null, '剪好時通知'), pill);
-    view.push(row);
+  // 主要路徑：全部句子（點一句就改）。
+  const stagePlayer = view.find((n) => n.id === 'stage')?.querySelector('video');
+  if (sentences.length && stagePlayer) view.push(buildSentences({ jobId, version: current.id, sentences, previous, player: stagePlayer, dropped: linesData.dropped || [] }));
+  else if (current) view.push(el('p', 'muted small pad-x', '這一版沒有逐句清單，可以從下面寫整支影片的意見。'));
+  // 最下方固定一條：修改單幾項、送出（點了打開送出面板：修改單、整支意見、附檔、送出）。
+  if (current) {
+    const bar = el('button', 'sheet-bar');
+    bar.id = 'sheetBar';
+    bar.onclick = () => openSendPanel(jobId, version, sentences);
+    view.push(bar);
   }
   $('view').replaceChildren(...view);
   paintSheet(jobId, version, sentences);

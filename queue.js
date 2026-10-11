@@ -79,11 +79,13 @@ setInterval(async () => {
 }, 5000);
 
 // 從下方滑出的小面板（選單、補充輸入框）：點外面或「取消」收起。
-function bottomPanel(children) {
+function bottomPanel(children, cls = '') {
   // 修改卡片開著：照「取消」收起（影片放大回來、打到一半的說明不記）；已有小面板就先關掉。
   document.querySelector('.line-card')?.close?.();
-  document.querySelectorAll('.bottom-panel, .panel-shade').forEach((n) => n.remove());
-  const panel = el('div', 'bottom-panel');
+  // 已經開著別的面板：照「關閉」收掉（拆掉鍵盤監聽），再開新的。
+  document.querySelectorAll('.bottom-panel').forEach((n) => (n.close ? n.close() : n.remove()));
+  document.querySelectorAll('.panel-shade').forEach((n) => n.remove());
+  const panel = el('div', `bottom-panel ${cls}`.trim());
   const shade = el('div', 'panel-shade');
   // 鍵盤跳出來時貼在鍵盤正上方（和修改卡片一樣）。
   const vv = window.visualViewport;
@@ -95,6 +97,7 @@ function bottomPanel(children) {
     shade.remove();
   };
   shade.onclick = close;
+  panel.close = close;
   panel.append(el('div', 'card-handle'), ...children(close));
   document.body.append(shade, panel);
   lift();
@@ -152,16 +155,13 @@ function openLatePanel(jobId) {
   });
 }
 
-// 狀態列右邊的按鈕：中止、補充、繼續、重試（中止、重試要再確認一次）。
+// 狀態列右邊的按鈕：補充、繼續、重試（重試要再確認一次）。中止收在 ⋯ 裡（versionToolsButton），免得按錯。
 function jobActionBar(job) {
   const can = L.jobActions(job, state.index && state.index.paused);
   const bar = el('div', 'job-actions');
   const add = (label, run, cls = 'pill') => { const b = el('button', cls, label); b.onclick = run; bar.append(b); };
   const run = (action, question, extra) => () => { if (!question || confirm(question)) sendCommand(job.id, action, extra).catch((e) => toast(e.message)); };
-  // 中止帶著按下時剪輯中那一筆的編號：電腦晚收到、已經換剪下一筆時不會誤停。
-  const building = (job.pending || []).find((p) => p.building);
   if (can.late) add('補充', () => openLatePanel(job.id));
-  if (can.stop) add('中止', run('stop', '中止後這一輪的修改會退回，確定中止？', building && building.id != null ? { id: building.id } : {}), 'pill warn');
   if (can.resume) add('繼續', run('resume'));
   if (can.retry) add('重試', run('retry', '從上次停下的地方重新剪，確定？'));
   return bar.children.length ? bar : null;
