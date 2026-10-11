@@ -131,6 +131,23 @@
   .primary-button:disabled { opacity: 0.5; }
   .revise-status { margin-top: 10px; color: var(--muted); font-size: 13px; }
   .revise-status.alert { color: var(--danger); }
+  /* 修改頁：這裡要改、卡片、修改單 */
+  .mark-button { width: 100%; margin-top: 12px; }
+  .line-card { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+               border-radius: 20px 20px 0 0; background: #15181E; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4); display: grid; gap: 10px; }
+  .card-nav { display: flex; align-items: center; justify-content: space-between; }
+  .card-nav .quiet-button { min-height: 44px; }
+  .card-nav .quiet-button:disabled { opacity: 0.3; }
+  .card-quote { font-size: 16px; line-height: 1.5; }
+  .card-choices { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .line-card .pill { min-height: 44px; padding: 0 16px; font-size: 14px; }
+  .line-card > .pill { justify-self: start; }
+  .card-note { min-height: 56px; }
+  .sheet-list { margin-bottom: 10px; }
+  .sheet-row { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line); }
+  .sheet-text { flex: 1; min-width: 0; min-height: 44px; padding: 10px 0; text-align: left; font-size: 14px; }
+  .sheet-bar { position: sticky; bottom: calc(8px + env(safe-area-inset-bottom)); display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 48px;
+               margin-top: 12px; padding: 0 20px; border-radius: var(--radius-pill); background: var(--paper); color: var(--ink); font-size: 15px; font-weight: 600; }
   .small { font-size: 12px; }
   .pad { padding: 24px 2px; }
   /* 設定：一列一項，左標題右內容 */

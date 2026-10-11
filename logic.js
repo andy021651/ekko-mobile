@@ -95,22 +95,130 @@
       const previous = i > 0 ? versions[i - 1].id : null;
       const branched = v.parent != null && v.parent !== previous;
       const summary = v.summary || '';
-      return { id: v.id, ready: v.ready !== false, text: branched ? `從 v${v.parent} 改：${summary}` : summary };
+      return { id: v.id, ready: v.ready !== false, lines: v.lines === true, text: branched ? `從 v${v.parent} 改：${summary}` : summary };
     }).reverse();
   };
   const pendingLines = (pending) => (pending || []).map((p, i) =>
     p.building ? `剪輯中：${p.summary}` : `排隊中：${p.summary}${i >= 2 ? `（前面還有 ${i} 筆）` : ''}`);
 
-  // 送出修改後的狀態（電腦寫的 outbox 回覆）。
-  const sendStatus = (reply) => {
-    if (!reply) return '已送出，等電腦收到…';
+  // 電腦寫下的時間（手機的當地時間），例如 14:32:05。
+  const clockText = (iso) => {
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) return '';
+    const two = (n) => String(n).padStart(2, '0');
+    return `${two(at.getHours())}:${two(at.getMinutes())}:${two(at.getSeconds())}`;
+  };
+  // 這筆修改在 index 裡的樣子（電腦有帶修改編號才認得出來）；認不出來回 undefined，已經不在隊伍裡回 null。
+  // index 不比回覆新（電腦收件後還沒重寫 index，或同一秒分不出先後）就不算，免得把剛排進去的說成剪完了。
+  // indexAt 是電腦在主執行緒拍下任務狀態的時間，和收件同一條執行緒，晚一秒以上就一定包含這筆。
+  const mine = (reply, job, indexAt) => {
+    if (!(Date.parse(indexAt) > Date.parse(reply.at))) return undefined;
+    const pending = job && Array.isArray(job.pending) ? job.pending : null;
+    if (!pending || reply.id == null || (pending.length && !pending.some((p) => p.id != null))) return undefined;
+    const at = pending.findIndex((p) => p.id === reply.id);
+    return at < 0 ? null : { at, building: !!pending[at].building };
+  };
+  // 送出修改後的狀態：沒回覆＝還在雲端等電腦接手；回覆的時間就是電腦收到的那一刻。
+  // 有 job（index 最新的樣子、indexAt 是 index 寫出的時間）就用它，沒有才用電腦收件當下的情況。
+  const sendStatus = (reply, job, indexAt) => {
+    if (!reply) return '已送到雲端，等電腦接手…';
     if (reply.status === 'rejected') return `沒送成：${reply.reason || '請再送一次'}`;
-    if (reply.status === 'held') return '電腦收到了，但這支在電腦上被中止，要在電腦按「繼續」才會開始';
-    return reply.position > 0 ? `電腦收到了，排隊中・前面還有 ${reply.position} 筆` : '電腦收到了，馬上開始改';
+    const clock = clockText(reply.at);
+    const got = clock ? `電腦 ${clock} 收到` : '電腦收到';
+    if (reply.status === 'held') return `${got}了，但這支在電腦上被中止，要在電腦按「繼續」才會開始`;
+    const found = mine(reply, job, indexAt);
+    if (found === null) return `${got}・這筆已經剪完`;
+    if (found) {
+      if (found.building) return `${got}，開始剪了`;
+      if (found.at > 0) return `${got}・這支前面還有 ${found.at} 筆修改`;
+      if (job.status === 'queued') return `${got}・等電腦先剪別支影片（排隊第 ${job.position}）`;
+      return `${got}・排隊中`;
+    }
+    if (reply.started) return `${got}，開始剪了`;
+    if (reply.position > 0) return `${got}・這支前面還有 ${reply.position} 筆修改`;
+    if (reply.paused) return `${got}・電腦的排隊暫停中，恢復後才會開始`;
+    if (reply.others > 0) return `${got}・前面還有 ${reply.others} 支影片，輪到就開始`;
+    return `${got}・排隊中`;
+  };
+  // 送出後要不要常常看：還沒回覆、或收到了但還沒開始剪。
+  const waitingForComputer = (reply, job, indexAt) => {
+    if (!reply) return true;
+    if (reply.status !== 'queued') return false;
+    const found = mine(reply, job, indexAt);
+    if (found === undefined) return !reply.started;
+    return !!found && !found.building;
   };
   const inboxName = (device, nowMs) => `${device}-${nowMs}.json`;
 
-  const api = { versionLines, pendingLines, sendStatus, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  // ---- 修改頁：邊看邊記 ----
+  const clock = (seconds) => {
+    const whole = Math.max(0, Math.floor(seconds || 0));
+    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+  };
+  // 按下「這裡要改」那一刻對到哪一句：最後一句開頭不晚於那一刻的；在第一句之前就是第一句。
+  const lineAt = (lines, seconds) => {
+    if (!lines || !lines.length) return -1;
+    let found = 0;
+    lines.forEach((line, i) => { if (line.at <= seconds + 0.05) found = i; });
+    return found;
+  };
+  const brollNow = (line) => (line && line.broll === 'footage' ? '有畫面' : line && line.broll === 'animation' ? '有動畫' : '沒有');
+  const sameLine = (a, b) => a.text === b.text && Math.abs(a.at - b.at) < 0.05;
+  // 整理成一筆：移除和換畫面只留一個（移除優先）；移除時不留說明（卡片上說明欄也停用）。三樣都沒有回傳 null。
+  const tidy = (entry) => {
+    const next = { text: entry.text, at: entry.at };
+    if (entry.cut) next.cut = true;
+    else if (entry.broll) { next.broll = entry.broll; if (entry.current) next.current = entry.current; }
+    if (entry.note && !entry.cut) next.note = entry.note;
+    return next.cut || next.broll || next.note ? next : null;
+  };
+  // 記進修改單：同一句合成一筆。replace（卡片「記下來」）整句換成這次的選擇；否則移除／換畫面以這次為準、說明接在後面。
+  const putSheet = (sheet, entry) => {
+    const rest = (sheet || []).filter((e) => !sameLine(e, entry));
+    const old = (sheet || []).find((e) => sameLine(e, entry));
+    let merged = { ...entry };
+    if (old && !entry.replace) {
+      const choice = entry.cut ? { cut: true } : entry.broll ? { broll: entry.broll, current: entry.current } : old.cut ? { cut: true } : { broll: old.broll, current: old.current };
+      merged = { text: old.text, at: old.at, ...choice, note: [old.note, entry.note].filter(Boolean).join('；') };
+    } else if (old) {
+      merged = { ...entry, text: old.text, at: old.at };
+    }
+    const next = tidy(merged);
+    return (next ? [...rest, next] : rest).sort((a, b) => a.at - b.at);
+  };
+  const dropSheet = (sheet, entry) => (sheet || []).filter((e) => !sameLine(e, entry));
+  // 一次最多 30 項（電腦也這樣擋）；已經記過的那一句可以改。
+  const SHEET_MAX = 30;
+  const canAddToSheet = (sheet, entry) => (sheet || []).length < SHEET_MAX || (sheet || []).some((e) => sameLine(e, entry));
+  // 收件檔超過 64KB 電腦會略過、不回覆：留一點空間，60KB 以上就不送。
+  const tooBigToSend = (body) => new TextEncoder().encode(JSON.stringify(body)).length > 60 * 1024;
+  // 收件格式：移除只帶文字與秒數（說明不送，和電腦版一樣）。
+  const sheetItems = (sheet) => (sheet || []).map((e) => {
+    if (e.cut) return { kind: 'cut', text: e.text, at: e.at };
+    const item = { kind: 'line', text: e.text, at: e.at };
+    if (e.broll) item.broll = e.broll;
+    if (e.broll && e.current) item.current = e.current;
+    if (e.note) item.note = e.note;
+    return item;
+  });
+  const BROLL_WORD = { footage: '畫面', animation: '動畫' };
+  const sheetLine = (e) => {
+    const quote = e.text.length > 8 ? `${e.text.slice(0, 7)}…` : e.text;
+    const what = e.cut ? '移除這句'
+      : e.broll === 'remove' ? '不要畫面'
+      : e.broll && e.broll === e.current ? `重做${BROLL_WORD[e.broll]}`
+      : e.broll ? `換成${BROLL_WORD[e.broll]}` : '';
+    const tail = e.cut ? what : [what, e.note].filter(Boolean).join('：');
+    return `${clock(e.at)}「${quote}」${tail}`;
+  };
+  // 沒送成：放回送出的那份；現在的修改單已經記了同一句就以現在的為準。
+  const restoreSheet = (current, sent) => {
+    const now = current || [];
+    const back = (sent || []).filter((e) => !now.some((c) => sameLine(c, e)));
+    return [...now, ...back].sort((a, b) => a.at - b.at);
+  };
+
+  const api = { lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

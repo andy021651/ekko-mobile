@@ -127,12 +127,14 @@ async function createJSON(folderId, name, value) {
     { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: multipart });
 }
 
-// ---- 送修改：寫一份到 inbox/，電腦每 30 秒收一次，回覆寫在 outbox/ 同檔名 ----
+// ---- 送修改：寫一份到 inbox/，電腦每 10 秒收一次，回覆寫在 outbox/ 同檔名 ----
 const sends = () => (store.get('sends') || []).filter((one) => Date.now() - one.at < 86400000);
-async function sendRevision(jobId, from, text) {
+async function sendRevision(jobId, from, text, sheet) {
   const file = L.inboxName(deviceId(), Date.now());
-  await createJSON(await ensureFolder('inbox'), file, { job: jobId, from, text, device: deviceId() });
-  store.set('sends', [...sends(), { file, job: jobId, at: Date.now(), reply: null }]);
+  const items = L.sheetItems(sheet);
+  await createJSON(await ensureFolder('inbox'), file, { job: jobId, from, text, items, device: deviceId() });
+  // 記下送出的修改單：電腦說沒送成時放回去。
+  store.set('sends', [...sends(), { file, job: jobId, from, sheet: sheet || [], at: Date.now(), reply: null }]);
   // 送出的人剪好要收到通知：還沒按「通知我」就順手打開（沒允許通知就算了）。
   if (!following(jobId)) await toggleFollow(jobId).catch(() => {});
 }
@@ -147,11 +149,19 @@ async function readReplies() {
     const found = !one.reply && files.find((f) => f.name === one.file);
     if (!found) continue;
     one.reply = await readJSON(found.id).catch(() => null);
+    if (one.reply && one.reply.status === 'rejected' && one.sheet && one.sheet.length && one.from != null && !one.restored) {
+      saveSheet(one.job, one.from, L.restoreSheet(readSheet(one.job, one.from), one.sheet));
+      one.restored = true;
+    }
     if (one.reply) api(`files/${found.id}`, {}, { method: 'DELETE' }).catch(() => {});
   }
   store.set('sends', all);
 }
 const latestSend = (jobId) => sends().filter((one) => one.job === jobId).pop() || null;
+// 修改單：每一支、每一版各一份，存在這支手機上。
+const sheetKey = (jobId, version) => `sheet-${jobId}-v${version}`;
+const readSheet = (jobId, version) => store.get(sheetKey(jobId, version)) || [];
+const saveSheet = (jobId, version, sheet) => (sheet.length ? store.set(sheetKey(jobId, version), sheet) : store.drop(sheetKey(jobId, version)));
 
 async function ensureDevicesFolder() { return ensureFolder('devices'); }
 
@@ -368,7 +378,79 @@ async function posterURL(jobId) {
 }
 
 // ---- 看片 ----
-async function showJob(jobId, chosen) {
+// 「這裡要改」的卡片：當下那一句、現在有沒有畫面、三種改法。卡片開著時不重畫看片頁（refreshList 看 .line-card）。
+function openLineCard(jobId, version, lines, at, player) {
+  document.querySelector('.line-card')?.remove();
+  const card = el('div', 'line-card');
+  // 取消：收起卡片；換句時可能已經記下幾筆，重畫讓修改單跟上（不自動播放）。
+  const close = () => { card.remove(); showJob(jobId, version); };
+  const render = (i) => {
+    const line = lines[i];
+    const saved = readSheet(jobId, version).find((e) => e.text === line.text && Math.abs(e.at - line.at) < 0.05) || {};
+    let cut = !!saved.cut, broll = saved.broll || null;
+    player.currentTime = line.at;
+    const nav = el('div', 'card-nav');
+    const prev = el('button', 'quiet-button', '‹ 上一句');
+    const next = el('button', 'quiet-button', '下一句 ›');
+    prev.disabled = i === 0;
+    next.disabled = i === lines.length - 1;
+    // 換上一句／下一句前先把這一句記下來，打到一半的說明不會不見。
+    const move = (to) => { if (remember()) render(to); };
+    prev.onclick = () => move(i - 1);
+    next.onclick = () => move(i + 1);
+    nav.append(prev, el('span', 'muted small', L.clock(line.at)), next);
+    const quote = el('p', 'card-quote', `「${line.text}」`);
+    const now = el('p', 'muted small', `現在：${L.brollNow(line)}`);
+    const cutButton = el('button', 'pill', '移除這句');
+    const choices = [['footage', '畫面'], ['animation', '動畫'], ...(line.broll ? [['remove', '不要畫面']] : [])];
+    const brollRow = el('div', 'card-choices');
+    brollRow.append(el('span', 'muted small', '換畫面'));
+    const chips = choices.map(([key, label]) => {
+      const chip = el('button', 'pill', line.broll === key ? `重做${label}` : label);
+      chip.onclick = () => { broll = broll === key ? null : key; cut = false; paint(); };
+      brollRow.append(chip);
+      return [key, chip];
+    });
+    const note = el('textarea', 'revise-input card-note');
+    note.rows = 2;
+    note.maxLength = 500;
+    note.placeholder = '寫說明（可以用語音輸入）';
+    note.value = saved.note || '';
+    const paint = () => {
+      // 移除這句時不用寫說明：停用說明欄，免得寫了以為有送。
+      note.disabled = cut;
+      note.placeholder = cut ? '移除這句時不用寫說明' : '寫說明（可以用語音輸入）';
+      cutButton.classList.toggle('on', cut);
+      cutButton.setAttribute('aria-pressed', String(cut));
+      chips.forEach(([key, chip]) => { chip.classList.toggle('on', broll === key); chip.setAttribute('aria-pressed', String(broll === key)); });
+    };
+    cutButton.onclick = () => { cut = !cut; if (cut) broll = null; paint(); };
+    const actions = el('div', 'revise-actions');
+    const cancel = el('button', 'quiet-button', '取消');
+    const keep = el('button', 'primary-button small', '記下來');
+    cancel.onclick = close;
+    // 記進修改單；超過 30 項不記，回傳 false。
+    const remember = () => {
+      const entry = { text: line.text, at: line.at, cut, broll, current: line.broll || null, note: note.value.trim(), replace: true };
+      const sheet = readSheet(jobId, version);
+      if ((cut || broll || entry.note) && !L.canAddToSheet(sheet, entry)) { toast('修改單一次最多 30 項，先送出這些再記'); return false; }
+      saveSheet(jobId, version, L.putSheet(sheet, entry));
+      return true;
+    };
+    keep.onclick = () => {
+      if (!remember()) return;
+      card.remove();
+      showJob(jobId, version, { resumeAt: line.at });
+    };
+    actions.append(cancel, keep);
+    paint();
+    card.replaceChildren(nav, quote, now, cutButton, brollRow, note, actions);
+  };
+  render(Math.max(0, at));
+  document.body.append(card);
+}
+
+async function showJob(jobId, chosen, opts = {}) {
   state.viewing = { id: jobId, chosen };
   const job = ((state.index && state.index.jobs) || []).find((j) => j.id === jobId);
   if (!job) return showList();
@@ -383,15 +465,24 @@ async function showJob(jobId, chosen) {
   const playable = lines.filter((v) => v.ready && files[`v${v.id}.mp4`]);
   // 預設看最新一版（有手機用小檔的）；送修改就改正在看的這一版。
   const current = lines.find((v) => v.id === chosen) || playable[0] || lines[0] || null;
+  const linesFile = current && current.lines && files[`lines-v${current.id}.json`];
+  const sentences = linesFile ? ((await readJSON(linesFile).catch(() => null)) || {}).lines || [] : [];
 
   if (current && files[`v${current.id}.mp4`]) {
     const player = el('video', 'player');
     player.controls = true;
     player.playsInline = true;
     player.preload = 'metadata';
+    // 記下一筆後重畫：從停住的地方接著播。
+    if (opts.resumeAt != null) player.addEventListener('loadedmetadata', () => { player.currentTime = opts.resumeAt; player.play().catch(() => {}); }, { once: true });
     posterURL(jobId).then((url) => { if (url) player.poster = url; });
     shareToken().then(() => { player.src = `drive-media/${files[`v${current.id}.mp4`]}`; });
     view.push(player);
+    if (sentences.length) {
+      const mark = el('button', 'primary-button mark-button', '這裡要改');
+      mark.onclick = () => { player.pause(); openLineCard(jobId, current.id, sentences, L.lineAt(sentences, player.currentTime), player); };
+      view.push(mark);
+    }
   } else if (job.status === 'done') {
     view.push(el('p', 'muted pad', '手機用的檔案還在準備，稍後再看。'));
   }
@@ -410,6 +501,7 @@ async function showJob(jobId, chosen) {
       if (!(v.ready && files[`v${v.id}.mp4`])) row.append(el('span', 'version-wait', '準備中'));
       row.onclick = () => {
         if (!(v.ready && files[`v${v.id}.mp4`])) return toast('這一版手機用的檔案還在準備');
+        if (current && v.id !== current.id && readSheet(jobId, current.id).length) toast(`v${current.id} 的修改單先收起來，切回 v${current.id} 還在`);
         showJob(jobId, v.id);
       };
       list.append(row);
@@ -427,7 +519,9 @@ async function showJob(jobId, chosen) {
   const input = el('textarea', 'revise-input');
   input.rows = 3;
   input.maxLength = 2000;
-  input.placeholder = '想改哪裡？例如：第二句字幕放大、結尾音樂小聲一點';
+  const version = current ? current.id : null;
+  const sheet = version != null ? readSheet(jobId, version) : [];
+  input.placeholder = sheet.length ? '整支影片的意見（可以不寫）' : '想改哪裡？例如：第二句字幕放大、結尾音樂小聲一點';
   const draftKey = `draft-${jobId}`;
   input.value = store.get(draftKey) || '';
   input.oninput = () => store.set(draftKey, input.value);
@@ -436,24 +530,59 @@ async function showJob(jobId, chosen) {
   const send = el('button', 'primary-button small', '送出修改');
   send.onclick = async () => {
     const text = input.value.trim();
-    if (!text) return toast('請寫要改哪裡');
+    const sending = version != null ? readSheet(jobId, version) : [];
+    if (!text && !sending.length) return toast('請寫要改哪裡');
+    if (L.tooBigToSend({ text, items: L.sheetItems(sending) })) return toast('修改單太長了，請刪掉幾項或縮短說明，分兩次送');
     send.disabled = true;
     try {
-      await sendRevision(jobId, current ? current.id : null, text);
+      await sendRevision(jobId, version, text, sending);
       store.drop(draftKey);
-      toast('已送出');
-      showJob(jobId, current && current.id);
+      if (version != null) saveSheet(jobId, version, []);
+      toast('已送到雲端');
+      showJob(jobId, version);
     } catch (e) {
       send.disabled = false;
       toast(e.message);
     }
   };
   actions.append(send);
+  // 修改單：邊看邊記的每一筆，點一筆回到那一句改，× 刪掉。
+  if (sheet.length) {
+    const list = el('div', 'sheet-list');
+    list.id = 'sheet';
+    list.append(el('p', 'muted small', `修改單・${sheet.length} 項`));
+    sheet.forEach((entry) => {
+      const row = el('div', 'sheet-row');
+      const jump = el('button', 'sheet-text', L.sheetLine(entry));
+      jump.onclick = () => {
+        const player = document.querySelector('video');
+        const at = sentences.findIndex((l) => l.text === entry.text && Math.abs(l.at - entry.at) < 0.05);
+        if (player && at >= 0) { player.pause(); openLineCard(jobId, version, sentences, at, player); }
+      };
+      const drop = el('button', 'icon-button', '×');
+      drop.setAttribute('aria-label', '刪掉這一筆');
+      drop.onclick = () => { saveSheet(jobId, version, L.dropSheet(readSheet(jobId, version), entry)); showJob(jobId, version); };
+      row.append(jump, drop);
+      list.append(row);
+    });
+    box.append(list);
+  }
   box.append(input, actions);
   const last = latestSend(jobId);
-  if (last) box.append(el('p', 'revise-status' + (last.reply && last.reply.status === 'rejected' ? ' alert' : ''), L.sendStatus(last.reply)));
+  if (last) {
+    const line = el('p', 'revise-status');
+    line.id = 'reviseStatus';
+    box.append(line);
+    paintSendStatus(line, last, job);
+  }
   if (L.isOffline(state.mac, Date.now())) box.append(el('p', 'muted small', '電腦離線中，開機後才會開始改'));
   view.push(box);
+  if (sheet.length) {
+    const bar = el('button', 'sheet-bar');
+    bar.append(el('span', null, `修改單・${sheet.length} 項`), el('span', null, '送出 ›'));
+    bar.onclick = () => $('sheet').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    view.push(bar);
+  }
 
   if (job.status === 'queued' || job.status === 'running') {
     const on = following(jobId);
@@ -466,6 +595,33 @@ async function showJob(jobId, chosen) {
   }
   $('view').replaceChildren(...view);
 }
+
+// 送出後的狀態一行：電腦收到的時間、前面還有幾筆、開始剪了沒。
+function paintSendStatus(line, send, job) {
+  line.textContent = L.sendStatus(send.reply, job, state.index && state.index.updated);
+  line.classList.toggle('alert', !!(send.reply && send.reply.status === 'rejected'));
+}
+
+// 剛送出修改、看片頁開著：還沒收到回覆每 5 秒看一次回覆，收到了但還沒開始剪每 15 秒看一次任務清單，
+// 只改狀態那一行（不重畫、不打斷播放與打字）。送出 10 分鐘後回到平常 30 秒一次。
+let watchTick = 0;
+async function watchSend() {
+  const line = $('reviseStatus');
+  const send = state.viewing && latestSend(state.viewing.id);
+  if (!line || !send || Date.now() - send.at > 600000) return;
+  const find = () => ((state.index && state.index.jobs) || []).find((j) => j.id === state.viewing.id);
+  if (!L.waitingForComputer(send.reply, find(), state.index && state.index.updated)) return;
+  watchTick++;
+  if (!send.reply) await readReplies().catch(() => {});
+  else if (watchTick % 3 === 0) await loadFolder().catch(() => {});
+  const now = state.viewing && latestSend(state.viewing.id);
+  if (!now || now.file !== send.file || $('reviseStatus') !== line) return;
+  // 沒送成、修改單放回來了：整頁重畫讓修改單出現（卡片開著或正在打字時等下一輪）。
+  const busy = document.querySelector('.line-card') || (document.activeElement && document.activeElement.classList.contains('revise-input'));
+  if (now.restored && !send.reply && !busy) return showJob(state.viewing.id, state.viewing.chosen);
+  paintSendStatus(line, now, find());
+}
+setInterval(() => { if (!document.hidden) watchSend(); }, 5000);
 
 // ---- 設定 ----
 function showSettings() {
@@ -582,7 +738,8 @@ const refreshList = () => {
   const typing = document.activeElement && document.activeElement.classList.contains('revise-input');
   const video = document.querySelector('video');
   const playing = video && !video.paused;
-  if (state.viewing && !typing && !playing) {
+  const marking = !!document.querySelector('.line-card');
+  if (state.viewing && !typing && !playing && !marking) {
     const { id, chosen } = state.viewing;
     loadFolder().then(() => showJob(id, chosen)).catch(() => {});
   }
