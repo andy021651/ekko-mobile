@@ -149,6 +149,8 @@
     return !!found && !found.building;
   };
   const inboxName = (device, nowMs) => `${device}-${nowMs}.json`;
+  // 自動換新版：網站上的版本（latest）和正在跑的（mine）不同才重新載入；讀不到版本檔不動；同一個新版本只試一次（tried）。
+  const shouldReload = (mine, latest, tried) => !!latest && latest !== mine && tried !== latest;
 
   // ---- 修改頁：邊看邊記 ----
   const clock = (seconds) => {
@@ -218,7 +220,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

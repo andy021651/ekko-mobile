@@ -623,6 +623,25 @@ async function watchSend() {
 }
 setInterval(() => { if (!document.hidden) watchSend(); }, 5000);
 
+// ---- 自動換新版 ----
+// 網站更新後手機常會沿用舊檔好幾分鐘（iPhone 主畫面的網頁 App 更久）。打開、切回前景時看一次 version.json（不走快取），
+// 版本不同就把網頁重新抓一次再重新載入。程式檔的網址帶版本號（index.html 的 ?v=），換版後一定抓到新的。
+const RUNNING = new URLSearchParams((document.querySelector('script[src^="app.js"]')?.getAttribute('src') || '').split('?')[1] || '').get('v') || '';
+let lastVersionCheck = 0;
+async function checkForUpdate() {
+  if (LOCAL || Date.now() - lastVersionCheck < 60000) return;
+  lastVersionCheck = Date.now();
+  const latest = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' }).then((r) => r.json()).then((j) => j.v).catch(() => '');
+  let tried = null;
+  try { tried = sessionStorage.getItem('ekko-reloaded-for'); } catch (_) {}
+  if (!L.shouldReload(RUNNING, latest, tried)) return;
+  // 正在記修改或打字時不打斷，下次切回來再換。
+  if (document.querySelector('.line-card') || (document.activeElement && document.activeElement.classList.contains('revise-input'))) { lastVersionCheck = 0; return; }
+  try { sessionStorage.setItem('ekko-reloaded-for', latest); } catch (_) {}
+  await Promise.all([location.pathname, 'index.html'].map((u) => fetch(u, { cache: 'reload' }).catch(() => {})));
+  location.reload();
+}
+
 // ---- 設定 ----
 function showSettings() {
   header('設定', { back: showList });
@@ -745,11 +764,12 @@ const refreshList = () => {
   }
 };
 setInterval(() => { if (!document.hidden) refreshList(); }, 30000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshList(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkForUpdate(); refreshList(); } });
 let pullFrom = null;
 window.addEventListener('touchstart', (event) => { pullFrom = window.scrollY <= 0 ? event.touches[0].clientY : null; }, { passive: true });
 window.addEventListener('touchend', (event) => {
   if (pullFrom !== null && event.changedTouches[0].clientY - pullFrom > 80) refreshList();
   pullFrom = null;
 }, { passive: true });
+checkForUpdate();
 start();
