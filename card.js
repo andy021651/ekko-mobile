@@ -5,26 +5,42 @@
 // 「這裡要改」的卡片：當下那一句、現在有沒有畫面、三種改法。卡片開著時不重畫看片頁（refreshList 看 .line-card）。
 // 開著時影片縮小貼在上面（body.marking），記下來只更新修改單那幾行，影片不重新載入。
 function openLineCard(jobId, version, lines, at, player) {
-  document.querySelector('.line-card')?.remove();
+  // 已經開著一張：照「取消」完整收掉（拆掉監聽），不然每換一句就多一組在背景跑，越用越卡。
+  const opened = document.querySelector('.line-card');
+  if (opened) { if (opened.close) opened.close(); else opened.remove(); }
   // 補充、排隊選單的小面板開著：先收起（連同半透明遮罩）。
   document.querySelectorAll('.bottom-panel, .panel-shade').forEach((n) => n.remove());
   const card = el('div', 'line-card');
   document.body.classList.add('marking');
   // 鍵盤跳出來時卡片貼在鍵盤正上方。
   const vv = window.visualViewport;
+  // 捲動、鍵盤進出時 visualViewport 會一直發事件：一格畫面最多處理一次，值沒變就不動（免得每格都重排版，iPhone 會卡）。
+  let lifting = 0, lastBottom = '', lastMax = '', resizeWatch = null;
   const lift = () => {
-    card.style.bottom = vv ? `${L.keyboardInset(window.innerHeight, vv.height, vv.offsetTop)}px` : '0px';
-    // 卡片最高到看得到的範圍（鍵盤打開時變矮），太高就可以捲。
-    card.style.maxHeight = `${(vv ? vv.height : window.innerHeight) - 24}px`;
-    if (typeof refit === 'function') refit();
-    // 全螢幕時進度條移到卡片正上方，改的時候看得到。
-    const controls = document.querySelector('.stage-full .stage-controls');
-    if (controls) controls.style.bottom = `${Math.max(0, window.innerHeight - card.getBoundingClientRect().top)}px`;
+    if (lifting) return;
+    lifting = requestAnimationFrame(() => {
+      lifting = 0;
+      const bottom = vv ? `${L.keyboardInset(window.innerHeight, vv.height, vv.offsetTop)}px` : '0px';
+      // 卡片最高到看得到的範圍（鍵盤打開時變矮），太高就可以捲。
+      const max = `${(vv ? vv.height : window.innerHeight) - 24}px`;
+      if (bottom === lastBottom && max === lastMax) return;
+      lastBottom = bottom;
+      lastMax = max;
+      card.style.bottom = bottom;
+      card.style.maxHeight = max;
+      refit();
+      // 全螢幕時進度條移到卡片正上方，改的時候看得到。
+      const controls = document.querySelector('.stage-full .stage-controls');
+      if (controls) controls.style.bottom = `${Math.max(0, window.innerHeight - card.getBoundingClientRect().top)}px`;
+    });
   };
   if (vv) { vv.addEventListener('resize', lift); vv.addEventListener('scroll', lift); }
   const finish = (play) => {
+    if (!card.isConnected && !play) return;
     card.querySelector('.trim-panel')?.stop();
     if (vv) { vv.removeEventListener('resize', lift); vv.removeEventListener('scroll', lift); }
+    cancelAnimationFrame(lifting);
+    resizeWatch?.disconnect();
     card.remove();
     document.body.classList.remove('marking');
     player.style.maxHeight = '';
@@ -41,12 +57,12 @@ function openLineCard(jobId, version, lines, at, player) {
     player.style.maxHeight = `${Math.max(160, card.getBoundingClientRect().top - 24)}px`;
     window.scrollTo({ top: Math.max(0, $('stage').getBoundingClientRect().top + window.scrollY - 8) });
   };
-  const refit = () => {
+  function refit() {
     if (!card.isConnected) return;
     // 卡片比螢幕高（例如展開剪點）：改成可以上下捲（這時往下滑收起卡片不作用，用「取消」）。
     card.classList.toggle('tall', card.scrollHeight > (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 24);
     if (card.offsetHeight !== fitted) { fitted = card.offsetHeight; fit(); }
-  };
+  }
   // 跳到那一句：影片還沒準備好（iPhone 常見）就等準備好再跳，沒跳成再試一次，免得卡片寫這句、影片停在別句。
   const seekTo = (t) => {
     const go = () => { try { player.currentTime = t; } catch (_) {} };
@@ -238,9 +254,11 @@ function openLineCard(jobId, version, lines, at, player) {
   };
   card.addEventListener('pointerup', release);
   card.addEventListener('pointercancel', release);
+  card.close = () => finish(false);
   document.body.append(card);
   // 卡片內容變高變矮（展開剪點、音波畫好、加附件）都重新檢查能不能捲、影片要縮多少。
-  if (window.ResizeObserver) new ResizeObserver(() => refit()).observe(card);
+  resizeWatch = window.ResizeObserver ? new ResizeObserver(() => refit()) : null;
+  resizeWatch?.observe(card);
   lift();
   // 全螢幕時卡片半透明疊在影片下半部；平常時影片縮到卡片上方放得下的高度，再捲到最上面：整個畫面都看得到。
   if (document.querySelector('.stage-full')) { card.classList.add('over-video'); return; }

@@ -536,6 +536,12 @@ async function showJob(jobId, chosen, opts = {}) {
     paintSendStatus(line, last, job);
   }
   if (L.isOffline(state.mac, Date.now())) box.append(el('p', 'muted small', '電腦離線中，開機後才會開始改'));
+  // 這支手機沒開通知：先講清楚剪好不會跳通知、怎麼打開（從瀏覽器開的收不到，要從主畫面的 Ekko）。
+  if (!(state.device && state.device.subscription)) {
+    box.append(el('p', 'muted small', navigator.standalone === false
+      ? '從瀏覽器打開的收不到通知：請點主畫面上的 Ekko 圖示打開'
+      : '這支手機還沒開通知，剪好不會跳通知（設定 → 剪好通知）'));
+  }
   view.push(box);
   const bar = el('button', 'sheet-bar');
   bar.id = 'sheetBar';

@@ -81,7 +81,7 @@ setInterval(async () => {
 // 從下方滑出的小面板（選單、補充輸入框）：點外面或「取消」收起。
 function bottomPanel(children) {
   // 修改卡片開著：照「取消」收起（影片放大回來、打到一半的說明不記）；已有小面板就先關掉。
-  document.querySelector('.line-card .revise-actions .quiet-button')?.click();
+  document.querySelector('.line-card')?.close?.();
   document.querySelectorAll('.bottom-panel, .panel-shade').forEach((n) => n.remove());
   const panel = el('div', 'bottom-panel');
   const shade = el('div', 'panel-shade');
