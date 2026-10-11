@@ -80,7 +80,7 @@ async function findComputers() {
     const folderId = mark.parents && mark.parents[0];
     if (!folderId) continue;
     const mac = await readJSON(mark.id).catch(() => null);
-    computers.push({ folderId, name: (mac && mac.name) || '電腦' });
+    computers.push({ folderId, name: (mac && mac.name) || '電腦', lastSeen: mac && mac.lastSeen });
   }
   return computers;
 }
@@ -666,6 +666,8 @@ function showSettings() {
   const more = el('div', 'group');
   more.append(row('連結其他電腦', '', () => showPairing()));
   if (state.folders.length > 1) more.append(row('換一台電腦', '', () => { store.drop('folder'); store.drop('pair'); start(); }));
+  // 網頁版本：換新版後這裡的號碼會變，用來確認手機拿到的是不是最新的。
+  more.append(row('網頁版本', RUNNING || '—'));
   more.append(row('登出', '', signOut, 'danger'));
   $('view').replaceChildren(mine, more);
 }
@@ -733,8 +735,10 @@ async function start() {
 function chooseComputer() {
   header('選擇電腦', {});
   const group = el('div', 'group');
-  for (const f of state.folders) {
-    const b = el('button', 'row', f.name);
+  for (const f of L.computerRows(state.folders, Date.now())) {
+    const b = el('button', 'row');
+    b.append(el('span', null, f.name));
+    if (f.seen) b.append(el('span', 'value', f.seen));
     b.onclick = () => { store.set('folder', f.folderId); start(); };
     group.append(b);
   }

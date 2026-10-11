@@ -38,6 +38,10 @@
     if (minutes < 1440) return `${Math.round(minutes / 60)} 小時前`;
     return `${Math.floor(minutes / 1440)} 天前`;
   };
+  // 選擇電腦的清單：最近上線的排前面，每一台寫最後上線時間（同名的電腦也分得出來）。
+  const computerRows = (computers, nowMs) => [...(computers || [])]
+    .sort((a, b) => (Date.parse(b.lastSeen) || 0) - (Date.parse(a.lastSeen) || 0))
+    .map((c) => { const when = ago(c.lastSeen, nowMs); return { folderId: c.folderId, name: c.name, seen: when ? `${when}上線` : '' }; });
   const forbiddenText = () => '沒有權限：請 Ekko 電腦的主人把資料夾共用給你時選「編輯者」，或稍後再試';
   // 推播公鑰：每台電腦一把，寫在它的 mac.json；舊版電腦沒有時用設定檔的。
   const pushKey = (mac, config) => (mac && mac.pushKey) || (config && config.vapidKey) || '';
@@ -220,7 +224,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
