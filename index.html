@@ -179,6 +179,15 @@
   .line-card .pill { min-height: 44px; padding: 0 12px; font-size: 14px; }
   .card-note { min-height: 56px; }
   .card-extra[hidden] { display: none; }
+  /* 卡片上不要出現 iPhone 的長按選字（會框到整張卡片）；選範圍改成點字。說明欄照常可以選。 */
+  .line-card { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .line-card textarea { -webkit-user-select: text; user-select: text; }
+  .card-quote .word { border-radius: 4px; cursor: pointer; }
+  .card-quote .word.picked { background: var(--accent); color: var(--ink); }
+  .card-part { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+  .card-part .quiet-button { min-height: 32px; padding: 0 6px; }
+  .card-explain { font-size: 13px; line-height: 1.45; }
+  .card-play { font-variant-numeric: tabular-nums; color: var(--text); }
   .sentences-head { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 8px 0 16px; }
   .sentences-toggle { min-height: 44px; font-size: 14px; font-weight: 500; text-align: left; }
   .sentence { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px 16px; border-top: 1px solid var(--line); text-align: left; font-size: 14px; }
@@ -245,8 +254,8 @@
            opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
   .toast.show { opacity: 1; transform: none; }
 </style>
-<script src="config.js?v=202610120530"></script>
-<script src="logic.js?v=202610120530"></script>
+<script src="config.js?v=202610120900"></script>
+<script src="logic.js?v=202610120900"></script>
 </head>
 <body>
 <header>
@@ -262,11 +271,11 @@
 </header>
 <main id="view"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="attach.js?v=202610120530"></script>
-<script src="card.js?v=202610120530"></script>
-<script src="sentences.js?v=202610120530"></script>
-<script src="queue.js?v=202610120530"></script>
-<script src="tools.js?v=202610120530"></script>
-<script src="app.js?v=202610120530"></script>
+<script src="attach.js?v=202610120900"></script>
+<script src="card.js?v=202610120900"></script>
+<script src="sentences.js?v=202610120900"></script>
+<script src="queue.js?v=202610120900"></script>
+<script src="tools.js?v=202610120900"></script>
+<script src="app.js?v=202610120900"></script>
 </body>
 </html>

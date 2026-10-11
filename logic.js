@@ -137,6 +137,42 @@
     .map((l, i) => `${i + 1}\n${srtClock(l.at)} --> ${srtClock(l.end)}\n${String(l.text).trim()}\n\n`).join('');
   const gainText = (db) => (db > 0 ? `+${db} dB` : `${db} dB`);
 
+  // ---- 卡片寫清楚改哪裡、點字選範圍 ----
+  // 一句切成可以點的字：英文一個字一格（數字連在一起）、中文一個字一格；空白與標點也留著（接回來一字不差），但不能點。
+  const wordTokens = (text) => (String(text || '').match(/[A-Za-z0-9'’]+|[\u3400-\u9fff\uf900-\ufaff]|\s+|[^\sA-Za-z0-9'’\u3400-\u9fff\uf900-\ufaff]+/g) || [])
+    .map((t) => ({ text: t, word: /[A-Za-z0-9\u3400-\u9fff\uf900-\ufaff]/.test(t) }));
+  const partText = (tokens, a, b) => tokens.slice(Math.min(a, b), Math.max(a, b) + 1).map((t) => t.text).join('').trim();
+  const rangeLabel = (line) => `${clock(line.at)}–${clock(line.end)}`;
+  // 卡片上引用相鄰那句：英文取前 4 個字、中文取前 10 個字。
+  const quoteShort = (text) => {
+    if (text.length <= 12) return text;
+    return /\s/.test(text) ? `${text.split(/\s+/).slice(0, 4).join(' ')}…` : `${text.slice(0, 10)}…`;
+  };
+  // 改的範圍：連到上一句從上一句開頭、連到下一句到下一句結尾。
+  const changeSpan = (lines, i, c) => ({ at: (c.prev && lines[i - 1] ? lines[i - 1] : lines[i]).at, end: (c.next && lines[i + 1] ? lines[i + 1] : lines[i]).end });
+  // 卡片上的一行說明：這次會改哪一段、改成什麼。c = { cut, broll, prev, next, part }。
+  const changeText = (lines, i, c) => {
+    const line = lines[i];
+    if (!line) return '';
+    if (c.cut) return `${rangeLabel(line)} 整句拿掉`;
+    if (c.broll === 'remove') return `${rangeLabel(line)} 拿掉畫面，回到主畫面`;
+    if (c.broll !== 'footage' && c.broll !== 'animation') return '';
+    const kind = BROLL_WORD[c.broll];
+    const redo = line.broll === c.broll;
+    const action = redo ? `重做${kind}（換掉現在的${kind}）` : line.broll ? `換成新的${kind}` : `加上新的${kind}`;
+    const prev = c.prev && lines[i - 1], next = c.next && lines[i + 1];
+    // 只做幾個字：沒連上下句就只蓋那幾個字；連了就從那幾個字開始（或結束），和電腦版一樣。
+    if (c.part && next && !prev) return `${action}：從這句的「${c.part}」開始，一路連到下一句「${quoteShort(next.text)}」`;
+    if (c.part && prev && !next) return `${action}：從上一句「${quoteShort(prev.text)}」開始，連到這句的「${c.part}」為止`;
+    if (c.part && !prev && !next) return `只在「${c.part}」這幾個字${action}`;
+    const span = changeSpan(lines, i, c);
+    const label = `${clock(span.at)}–${clock(span.end)}`;
+    if (!prev && !next) return redo ? `${label} 這句的${kind}重做（換掉現在的${kind}）` : `${label} ${action}`;
+    const link = prev && next ? `從上一句「${quoteShort(prev.text)}」連到下一句「${quoteShort(next.text)}」`
+      : prev ? `從上一句「${quoteShort(prev.text)}」開始` : `一路連到下一句「${quoteShort(next.text)}」`;
+    return `${label} ${action}，${link}`;
+  };
+
   // ---- 附件 ----
   const ATTACH_EXT = ['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp', 'mov', 'mp4', 'm4v', 'm4a', 'mp3', 'wav', 'aac'];
   const MB = 1024 * 1024;
@@ -329,6 +365,9 @@
       if (entry.broll !== 'remove') { if (entry.prev) next.prev = bare(entry.prev); if (entry.next) next.next = bare(entry.next); }
     }
     if (entry.note && !entry.cut) next.note = entry.note;
+    // 只做這幾個字（part）：跟著畫面、動畫或說明；選到整句等於沒選；移除這句、不要畫面不帶。
+    const part = typeof entry.part === 'string' ? entry.part.trim() : '';
+    if (part && part !== entry.text && !entry.cut && entry.broll !== 'remove' && (next.broll || next.note)) next.part = part;
     // 附件（第 4 批）：只附檔也算一筆；移除這句不帶附件。
     if (!entry.cut && entry.files && entry.files.length) next.files = entry.files;
     return next.cut || next.broll || next.note || next.files ? next : null;
@@ -345,7 +384,7 @@
     const old = (sheet || []).find((e) => sameLine(e, entry));
     let merged = { ...entry };
     if (old && !entry.replace) {
-      const pick = (e) => ({ broll: e.broll, current: e.current, source: e.source, prev: e.prev, next: e.next });
+      const pick = (e) => ({ broll: e.broll, current: e.current, source: e.source, prev: e.prev, next: e.next, part: e.part });
       const choice = entry.cut ? { cut: true } : entry.broll ? pick(entry) : old.cut ? { cut: true } : pick(old);
       merged = { text: old.text, at: old.at, ...choice, note: [old.note, entry.note].filter(Boolean).join('；'), files: [...(old.files || []), ...(entry.files || [])] };
     } else if (old) {
@@ -380,6 +419,7 @@
       const kept = (ref) => ref && !cuts.some((c) => sameLine(c, ref));
       if (kept(e.prev)) item.prev = bare(e.prev);
       if (kept(e.next)) item.next = bare(e.next);
+      if (e.part) item.part = { text: e.part };
       if (e.note) item.note = e.note;
       if (names && e.files && e.files.length) item.files = e.files.map((f) => ({ name: names[f.fid], size: f.size }));
       return [item];
@@ -395,7 +435,7 @@
       : e.broll === 'remove' ? '不要畫面'
       : e.broll && e.broll === e.current ? `重做${BROLL_WORD[e.broll]}`
       : e.broll ? `換成${BROLL_WORD[e.broll]}` : '';
-    const extra = (e.source ? `（${SOURCE_WORD[e.source]}）` : '') + (e.prev ? '・連到上一句' : '') + (e.next ? '・連到下一句' : '');
+    const extra = (e.source ? `（${SOURCE_WORD[e.source]}）` : '') + (e.prev ? '・連到上一句' : '') + (e.next ? '・連到下一句' : '') + (e.part ? `・只做「${e.part}」` : '');
     const attached = !e.cut && e.files && e.files.length ? `${what + extra ? '・' : ''}附 ${e.files.length} 個檔` : '';
     const tail = e.cut ? what : [what + extra + attached, e.note].filter(Boolean).join('：');
     return `${clock(e.at)}「${quote}」${tail}`;
@@ -407,7 +447,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { planProblem, withoutFiles, attachProblem, safeUploadName, sizeText, uploadPlan, isRestore, restoreEntry, droppedLabel, subtitleSRT, gainText, pendingRows, jobActions, commandBody, commandStatus, reportPreview, isOrder, moveLine, orderEntry, orderOf, neighborOf, changedLines, draftBack, sameLine, lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { wordTokens, partText, rangeLabel, changeSpan, changeText, planProblem, withoutFiles, attachProblem, safeUploadName, sizeText, uploadPlan, isRestore, restoreEntry, droppedLabel, subtitleSRT, gainText, pendingRows, jobActions, commandBody, commandStatus, reportPreview, isOrder, moveLine, orderEntry, orderOf, neighborOf, changedLines, draftBack, sameLine, lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

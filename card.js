@@ -38,12 +38,25 @@ function openLineCard(jobId, version, lines, at, player) {
     window.scrollTo({ top: Math.max(0, $('stage').getBoundingClientRect().top + window.scrollY - 8) });
   };
   const refit = () => { if (card.isConnected && card.offsetHeight !== fitted) { fitted = card.offsetHeight; fit(); } };
+  // 跳到那一句：影片還沒準備好（iPhone 常見）就等準備好再跳，沒跳成再試一次，免得卡片寫這句、影片停在別句。
+  const seekTo = (t) => {
+    const go = () => { try { player.currentTime = t; } catch (_) {} };
+    if (player.readyState >= 1) go(); else player.addEventListener('loadedmetadata', go, { once: true });
+    setTimeout(() => { if (Math.abs(player.currentTime - t) > 0.3) go(); }, 500);
+  };
   const render = (i) => {
     const line = lines[i];
     const saved = readSheet(jobId, version).find((e) => e.text === line.text && Math.abs(e.at - line.at) < 0.05) || {};
     let files = saved.files || [];
     let cut = !!saved.cut, broll = saved.broll || null, source = saved.source || '', linkPrev = !!saved.prev, linkNext = !!saved.next;
-    player.currentTime = line.at;
+    seekTo(line.at);
+    // 點字選範圍（只做這幾個字）：先點開頭、再點結尾；同一個字點兩次清掉。a、b 是 tokens 的位置。
+    const tokens = L.wordTokens(line.text);
+    let partA = null, partB = null;
+    if (saved.part) {
+      for (let x = 0; x < tokens.length && partA == null; x++) for (let y = x; y < tokens.length; y++) if (tokens[x].word && L.partText(tokens, x, y) === saved.part) { partA = x; partB = y; break; }
+    }
+    const part = () => (partA == null ? '' : L.partText(tokens, partA, partB));
     const nav = el('div', 'card-nav');
     const prev = el('button', 'quiet-button', '‹ 上一句');
     const next = el('button', 'quiet-button', '下一句 ›');
@@ -53,8 +66,31 @@ function openLineCard(jobId, version, lines, at, player) {
     const move = (to) => { if (remember()) render(to); };
     prev.onclick = () => move(i - 1);
     next.onclick = () => move(i + 1);
-    nav.append(prev, el('span', 'muted small', `${L.clock(line.at)}・現在${L.brollNow(line) === '沒有' ? '沒有畫面' : L.brollNow(line)}`), next);
-    const quote = el('p', 'card-quote', `「${line.text}」`);
+    // 中間「▶ 0:00–0:07」：只播這一句（連到上下句時播整段），播完就停，看清楚要改的是哪裡。
+    const playSpan = el('button', 'quiet-button card-play', `▶ ${L.rangeLabel(line)}`);
+    playSpan.onclick = () => {
+      const span = L.changeSpan(lines, i, { prev: linkPrev, next: linkNext });
+      seekTo(span.at);
+      player.play().catch(() => {});
+      const stop = () => { if (player.currentTime >= span.end - 0.05) player.pause(); };
+      player.addEventListener('timeupdate', stop);
+      player.addEventListener('pause', () => player.removeEventListener('timeupdate', stop), { once: true });
+    };
+    nav.append(prev, playSpan, next);
+    const quote = el('p', 'card-quote');
+    const tokenEls = tokens.map((t, k) => {
+      const span = el('span', t.word ? 'word' : null, t.text);
+      if (t.word) span.onclick = () => {
+        if (partA == null || partA !== partB) { partA = k; partB = k; }
+        else if (k === partA) { partA = null; partB = null; }
+        else partB = k;
+        paint();
+      };
+      return span;
+    });
+    quote.append('「', ...tokenEls, '」');
+    const partRow = el('div', 'card-part');
+    const explain = el('p', 'card-explain');
     // 一列選完：移除這句｜換畫面／換動畫（原本就有的叫「重做」）／不要畫面。
     const choiceRow = el('div', 'card-choices');
     const cutButton = el('button', 'pill', '移除這句');
@@ -100,8 +136,7 @@ function openLineCard(jobId, version, lines, at, player) {
     addNote.onclick = () => showNote(true);
     note.oninput = () => paint();
     const paint = () => {
-      // 進度條即時跟著：這一句亮一段，選了改法先出現空心點。
-      paintBand(line);
+      // 進度條即時跟著：選了改法先出現空心點（亮的那一段在下面算）。
       paintMarks(jobId, version, lines, { text: line.text, at: line.at, cut, broll, note: note.value.trim() });
       // 移除這句時不用寫說明：收起說明，免得寫了以為有送。
       note.disabled = cut;
@@ -113,6 +148,22 @@ function openLineCard(jobId, version, lines, at, player) {
       links.forEach(([pill, on]) => { pill.classList.toggle('on', on()); pill.setAttribute('aria-pressed', String(on())); });
       sourceRow.hidden = sources.length < 2 || broll !== 'footage';
       sourceChips.forEach(([key, chip]) => { chip.classList.toggle('on', source === key); chip.setAttribute('aria-pressed', String(source === key)); });
+      // 選到的字亮起來；下面一行寫這次會改哪一段、改成什麼。
+      const lo = partA == null ? -1 : Math.min(partA, partB), hi = partA == null ? -2 : Math.max(partA, partB);
+      tokenEls.forEach((span, k) => span.classList.toggle('picked', k >= lo && k <= hi));
+      const withBroll = broll === 'footage' || broll === 'animation';
+      if (part()) {
+        const clear = el('button', 'quiet-button', '清除');
+        clear.onclick = () => { partA = null; partB = null; paint(); };
+        partRow.replaceChildren(el('span', 'muted small', `只做「${part()}」`), clear);
+      } else {
+        partRow.replaceChildren(...(withBroll ? [el('span', 'muted small', '只要做幾個字：點開頭的字、再點結尾的字')] : []));
+      }
+      const what = L.changeText(lines, i, { cut, broll, prev: linkPrev, next: linkNext, part: withBroll ? part() : '' });
+      explain.textContent = what || `現在${L.brollNow(line) === '沒有' ? '沒有畫面' : L.brollNow(line)}`;
+      explain.classList.toggle('muted', !what);
+      // 進度條標出整段（連到上下句時跨過去）。
+      paintBand(withBroll ? L.changeSpan(lines, i, { prev: linkPrev, next: linkNext }) : line);
       // 只有卡片高度變了才重算（打字、鍵盤跳出時不動影片）。
       refit();
     };
@@ -124,7 +175,7 @@ function openLineCard(jobId, version, lines, at, player) {
     // 記進修改單；超過 30 項不記，回傳 false。
     const remember = () => {
       const entry = { text: line.text, at: line.at, cut, broll, current: line.broll || null, note: note.value.trim(), replace: true, files,
-                      source, prev: linkPrev ? L.neighborOf(lines, i, 'prev') : null, next: linkNext ? L.neighborOf(lines, i, 'next') : null };
+                      source, prev: linkPrev ? L.neighborOf(lines, i, 'prev') : null, next: linkNext ? L.neighborOf(lines, i, 'next') : null, part: part() };
       const sheet = readSheet(jobId, version);
       if ((cut || broll || entry.note || files.length) && !L.canAddToSheet(sheet, entry)) { toast('修改單一次最多 30 項，先送出這些再記'); return false; }
       saveSheet(jobId, version, L.putSheet(sheet, entry));
@@ -135,7 +186,7 @@ function openLineCard(jobId, version, lines, at, player) {
     paint();
     // 這一句的附件（移除這句時不帶）。
     const attach = attachField(files, (next) => { files = next; refit(); });
-    card.replaceChildren(el('div', 'card-handle'), nav, quote, choiceRow, linkRow, sourceRow, addNote, note, attach, actions);
+    card.replaceChildren(el('div', 'card-handle'), nav, quote, partRow, choiceRow, explain, linkRow, sourceRow, addNote, note, attach, actions);
     refit();
   };
   render(Math.max(0, at));
