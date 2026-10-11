@@ -463,9 +463,88 @@ function openLineCard(jobId, version, lines, at, player) {
   render(Math.max(0, at));
   document.body.append(card);
   lift();
-  // 影片縮到卡片上方放得下的高度，再捲到最上面：整個畫面都看得到。
+  // 全螢幕時卡片半透明疊在影片下半部；平常時影片縮到卡片上方放得下的高度，再捲到最上面：整個畫面都看得到。
+  if (document.querySelector('.stage-full')) { card.classList.add('over-video'); return; }
   player.style.maxHeight = `${Math.max(160, card.getBoundingClientRect().top - 24)}px`;
-  window.scrollTo({ top: Math.max(0, player.getBoundingClientRect().top + window.scrollY - 8) });
+  window.scrollTo({ top: Math.max(0, $('stage').getBoundingClientRect().top + window.scrollY - 8) });
+}
+
+// 自己的播放器（內建的控制列和全螢幕加不了東西）：播放鍵、進度條（修改單每一筆一個點，點了回到那一句）、時間、全螢幕；
+// 影片上方顯示現在播到哪一句，右下浮一顆「✎ 改這裡」。點影片也能播放／暫停。
+function buildStage(jobId, version, sentences, player) {
+  const stage = el('div', 'stage');
+  stage.id = 'stage';
+  const caption = el('div', 'stage-caption');
+  const mark = el('button', 'stage-mark', '✎ 改這裡');
+  const controls = el('div', 'stage-controls');
+  const play = el('button', 'stage-button', '▶');
+  const scrub = el('div', 'stage-scrub');
+  const fill = el('div', 'stage-fill');
+  const marks = el('div', 'stage-marks');
+  const time = el('span', 'stage-time', '0:00');
+  const full = el('button', 'stage-button', '⤢');
+  play.setAttribute('aria-label', '播放');
+  full.setAttribute('aria-label', '全螢幕');
+  scrub.setAttribute('role', 'slider');
+  scrub.setAttribute('aria-label', '播放位置');
+  scrub.append(fill, marks);
+  controls.append(play, scrub, time, full);
+  const sync = () => {
+    const duration = player.duration;
+    fill.style.width = `${duration > 0 ? (player.currentTime / duration) * 100 : 0}%`;
+    time.textContent = L.timeText(player.currentTime, duration);
+    play.textContent = player.paused ? '▶' : '❚❚';
+    play.setAttribute('aria-label', player.paused ? '播放' : '暫停');
+    const at = L.lineAt(sentences, player.currentTime);
+    caption.textContent = at >= 0 ? sentences[at].text : '';
+  };
+  ['timeupdate', 'play', 'pause', 'loadedmetadata', 'durationchange', 'seeked'].forEach((name) => player.addEventListener(name, sync));
+  player.addEventListener('loadedmetadata', () => paintMarks(jobId, version, sentences));
+  const toggle = () => (player.paused ? player.play().catch(() => {}) : player.pause());
+  play.onclick = toggle;
+  player.onclick = toggle;
+  // 進度條：按住拖到哪就跳到哪。
+  const seek = (event) => {
+    const box = scrub.getBoundingClientRect();
+    if (player.duration > 0) player.currentTime = L.scrubFraction(event.clientX, box.left, box.width) * player.duration;
+  };
+  scrub.addEventListener('pointerdown', (event) => { scrub.setPointerCapture(event.pointerId); seek(event); });
+  scrub.addEventListener('pointermove', (event) => { if (scrub.hasPointerCapture(event.pointerId)) seek(event); });
+  full.onclick = () => {
+    const on = !stage.classList.contains('stage-full');
+    stage.classList.toggle('stage-full', on);
+    document.body.classList.toggle('stage-open', on);
+    full.textContent = on ? '⤡' : '⤢';
+    full.setAttribute('aria-label', on ? '離開全螢幕' : '全螢幕');
+  };
+  if (sentences.length) {
+    mark.onclick = () => { player.pause(); openLineCard(jobId, version, sentences, L.lineAt(sentences, player.currentTime), player); };
+  } else {
+    mark.hidden = true;
+    caption.hidden = true;
+  }
+  stage.append(player, caption, mark, controls);
+  sync();
+  return stage;
+}
+
+// 進度條上的點：修改單每一筆一個，點了停下來打開那一句的卡片。
+function paintMarks(jobId, version, sentences) {
+  const stage = $('stage');
+  const marks = stage && stage.querySelector('.stage-marks');
+  const player = stage && stage.querySelector('video');
+  if (!marks || !player) return;
+  marks.replaceChildren(...L.sheetMarks(readSheet(jobId, version), player.duration).map((m) => {
+    const dot = el('button', 'stage-dot');
+    dot.style.left = `${m.left}%`;
+    dot.setAttribute('aria-label', `修改單：${L.clock(m.at)}`);
+    dot.addEventListener('pointerdown', (event) => event.stopPropagation());
+    dot.onclick = () => {
+      const at = sentences.findIndex((l) => l.text === m.text && Math.abs(l.at - m.at) < 0.05);
+      if (at >= 0) { player.pause(); openLineCard(jobId, version, sentences, at, player); }
+    };
+    return dot;
+  }));
 }
 
 // 修改單那幾行和最下方那一條：記下來、刪掉時只更新這裡，不重畫整頁。
@@ -473,6 +552,7 @@ function paintSheet(jobId, version, sentences) {
   const list = $('sheet'), bar = $('sheetBar'), input = document.querySelector('.revise > .revise-input');
   if (!list || !bar) return;
   const sheet = version != null ? readSheet(jobId, version) : [];
+  paintMarks(jobId, version, sentences);
   list.hidden = bar.hidden = !sheet.length;
   if (input) input.placeholder = sheet.length ? '整支影片的意見（可以不寫）' : '想改哪裡？例如：第二句字幕放大、結尾音樂小聲一點';
   bar.replaceChildren(el('span', null, `修改單・${sheet.length} 項`), el('span', null, '送出 ›'));
@@ -513,19 +593,13 @@ async function showJob(jobId, chosen, opts = {}) {
 
   if (current && files[`v${current.id}.mp4`]) {
     const player = el('video', 'player');
-    player.controls = true;
     player.playsInline = true;
     player.preload = 'metadata';
     // 記下一筆後重畫：從停住的地方接著播。
     if (opts.resumeAt != null) player.addEventListener('loadedmetadata', () => { player.currentTime = opts.resumeAt; player.play().catch(() => {}); }, { once: true });
     posterURL(jobId).then((url) => { if (url) player.poster = url; });
     shareToken().then(() => { player.src = `drive-media/${files[`v${current.id}.mp4`]}`; });
-    view.push(player);
-    if (sentences.length) {
-      const mark = el('button', 'primary-button mark-button', '這裡要改');
-      mark.onclick = () => { player.pause(); openLineCard(jobId, current.id, sentences, L.lineAt(sentences, player.currentTime), player); };
-      view.push(mark);
-    }
+    view.push(buildStage(jobId, current.id, sentences, player));
   } else if (job.status === 'done') {
     view.push(el('p', 'muted pad', '手機用的檔案還在準備，稍後再看。'));
   }
@@ -783,10 +857,13 @@ const refreshList = () => {
   const typing = document.activeElement && document.activeElement.classList.contains('revise-input');
   const video = document.querySelector('video');
   const playing = video && !video.paused;
-  const marking = !!document.querySelector('.line-card');
+  const marking = !!document.querySelector('.line-card, .stage-full');
   if (state.viewing && !typing && !playing && !marking) {
+    // 只有這支的資料真的變了（剪好、多一版、排隊狀態）才重畫，免得影片重新載入、畫面跳動。
     const { id, chosen } = state.viewing;
-    loadFolder().then(() => showJob(id, chosen)).catch(() => {});
+    const snapshot = () => JSON.stringify(((state.index && state.index.jobs) || []).find((j) => j.id === id) || null);
+    const before = snapshot();
+    loadFolder().then(() => { if (snapshot() !== before) showJob(id, chosen); }).catch(() => {});
   }
 };
 setInterval(() => { if (!document.hidden) refreshList(); }, 30000);

@@ -153,6 +153,12 @@
     return !!found && !found.building;
   };
   const inboxName = (device, nowMs) => `${device}-${nowMs}.json`;
+  // ---- 自己的播放器 ----
+  // 手指在進度條上的位置換成 0～1。
+  const scrubFraction = (x, left, width) => (width > 0 ? Math.min(1, Math.max(0, (x - left) / width)) : 0);
+  // 修改單每一筆在進度條上的位置（百分比）；還不知道片長就不畫。
+  const sheetMarks = (sheet, duration) => (duration > 0 ? (sheet || []).map((e) => ({ text: e.text, at: e.at, left: Math.min(100, Math.round((e.at / duration) * 1000) / 10) })) : []);
+  const timeText = (current, duration) => (Number.isFinite(duration) && duration > 0 ? `${clock(current)} / ${clock(duration)}` : clock(current));
   // 鍵盤跳出來時卡片要墊多高：畫面高度（innerHeight）減掉看得到的那一塊（visualViewport 的高度加上被往上推的距離）。
   const keyboardInset = (innerHeight, viewHeight, viewTop) => Math.max(0, Math.round(innerHeight - viewHeight - viewTop));
   // 自動換新版：網站上的版本（latest）和正在跑的（mine）不同才重新載入；讀不到版本檔不動；同一個新版本只試一次（tried）。
@@ -226,7 +232,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

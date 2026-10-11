@@ -132,7 +132,31 @@
   .revise-status { margin-top: 10px; color: var(--muted); font-size: 13px; }
   .revise-status.alert { color: var(--danger); }
   /* 修改頁：這裡要改、卡片、修改單 */
-  .mark-button { width: 100%; margin-top: 12px; }
+  /* 自己的播放器 */
+  .stage { position: relative; margin-top: 4px; border-radius: var(--radius-card); overflow: hidden; background: #000; }
+  .stage .player { margin-top: 0; border-radius: 0; }
+  .stage-caption { position: absolute; top: 10px; left: 10px; right: 10px; padding: 4px 10px; border-radius: var(--radius-pill); width: fit-content; max-width: calc(100% - 20px);
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: rgba(0, 0, 0, 0.5); color: #fff; font-size: 13px; pointer-events: none; }
+  .stage-caption:empty { display: none; }
+  .stage-mark { position: absolute; right: 12px; bottom: 64px; min-height: 44px; padding: 0 18px; border-radius: var(--radius-pill);
+                background: var(--paper); color: var(--ink); font-size: 15px; font-weight: 600; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+  .stage-controls { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+                    background: linear-gradient(transparent, rgba(0, 0, 0, 0.65)); }
+  .stage-button { display: grid; place-items: center; flex: none; width: 44px; height: 44px; color: #fff; font-size: 17px; }
+  .stage-time { flex: none; color: #fff; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .stage-scrub { position: relative; flex: 1; height: 44px; touch-action: none; cursor: pointer; }
+  .stage-scrub::before { content: ""; position: absolute; left: 0; right: 0; top: 20px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.3); }
+  .stage-fill { position: absolute; left: 0; top: 20px; height: 4px; border-radius: 2px; background: var(--paper); pointer-events: none; }
+  .stage-marks { position: absolute; inset: 0; pointer-events: none; }
+  .stage-dot { position: absolute; top: 10px; width: 24px; height: 24px; margin-left: -12px; pointer-events: auto; }
+  .stage-dot::after { content: ""; position: absolute; left: 7px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
+  .stage-full { position: fixed; inset: 0; z-index: 8; margin: 0; border-radius: 0; display: flex; align-items: center; }
+  .stage-full .player { width: 100%; height: 100%; max-height: none !important; object-fit: contain; }
+  .stage-full .stage-controls { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+  .stage-full .stage-mark { bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .stage-full .stage-caption { top: calc(10px + env(safe-area-inset-top)); }
+  body.stage-open { overflow: hidden; }
+  .line-card.over-video { background: rgba(21, 24, 30, 0.84); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
   .line-card { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 8px 16px calc(12px + env(safe-area-inset-bottom));
                border-radius: 20px 20px 0 0; background: #15181E; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4); display: grid; gap: 8px; }
   /* 卡片開著：影片縮小，整個畫面留在卡片上方看得到 */
@@ -167,8 +191,8 @@
            opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
   .toast.show { opacity: 1; transform: none; }
 </style>
-<script src="config.js?v=202610111500"></script>
-<script src="logic.js?v=202610111500"></script>
+<script src="config.js?v=202610111700"></script>
+<script src="logic.js?v=202610111700"></script>
 </head>
 <body>
 <header>
@@ -184,6 +208,6 @@
 </header>
 <main id="view"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="app.js?v=202610111500"></script>
+<script src="app.js?v=202610111700"></script>
 </body>
 </html>
