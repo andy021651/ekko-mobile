@@ -156,6 +156,14 @@
   .stage-full .stage-mark { bottom: calc(64px + env(safe-area-inset-bottom)); }
   .stage-full .stage-caption { top: calc(10px + env(safe-area-inset-top)); }
   body.stage-open { overflow: hidden; }
+  .stage-band { position: absolute; top: 15px; height: 14px; border-radius: 4px; background: rgba(147, 166, 192, 0.55); pointer-events: none; }
+  .stage-band[hidden] { display: none; }
+  .stage-dot.pending::after { background: transparent; border: 2px solid var(--warn); left: 6px; top: 6px; width: 12px; height: 12px; box-sizing: border-box; }
+  .stage-full .stage-controls { transition: bottom 200ms var(--ease); }
+  .line-card { touch-action: none; transition: transform 200ms var(--ease); }
+  .line-card.dragging { transition: none; }
+  .line-card textarea { touch-action: auto; }
+  .card-handle { justify-self: center; width: 36px; height: 4px; margin-bottom: 2px; border-radius: 2px; background: rgba(236, 238, 242, 0.25); }
   .line-card.over-video { background: rgba(21, 24, 30, 0.84); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
   .line-card { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 8px 16px calc(12px + env(safe-area-inset-bottom));
                border-radius: 20px 20px 0 0; background: #15181E; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4); display: grid; gap: 8px; }
@@ -191,8 +199,8 @@
            opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); pointer-events: none; }
   .toast.show { opacity: 1; transform: none; }
 </style>
-<script src="config.js?v=202610111700"></script>
-<script src="logic.js?v=202610111700"></script>
+<script src="config.js?v=202610111800"></script>
+<script src="logic.js?v=202610111800"></script>
 </head>
 <body>
 <header>
@@ -208,6 +216,6 @@
 </header>
 <main id="view"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="app.js?v=202610111700"></script>
+<script src="app.js?v=202610111800"></script>
 </body>
 </html>

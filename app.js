@@ -386,13 +386,21 @@ function openLineCard(jobId, version, lines, at, player) {
   document.body.classList.add('marking');
   // 鍵盤跳出來時卡片貼在鍵盤正上方。
   const vv = window.visualViewport;
-  const lift = () => { card.style.bottom = vv ? `${L.keyboardInset(window.innerHeight, vv.height, vv.offsetTop)}px` : '0px'; };
+  const lift = () => {
+    card.style.bottom = vv ? `${L.keyboardInset(window.innerHeight, vv.height, vv.offsetTop)}px` : '0px';
+    // 全螢幕時進度條移到卡片正上方，改的時候看得到。
+    const controls = document.querySelector('.stage-full .stage-controls');
+    if (controls) controls.style.bottom = `${Math.max(0, window.innerHeight - card.getBoundingClientRect().top)}px`;
+  };
   if (vv) { vv.addEventListener('resize', lift); vv.addEventListener('scroll', lift); }
   const finish = (play) => {
     if (vv) { vv.removeEventListener('resize', lift); vv.removeEventListener('scroll', lift); }
     card.remove();
     document.body.classList.remove('marking');
     player.style.maxHeight = '';
+    const controls = document.querySelector('.stage-controls');
+    if (controls) controls.style.bottom = '';
+    paintBand(null);
     paintSheet(jobId, version, lines);
     if (play) player.play().catch(() => {});
   };
@@ -434,7 +442,11 @@ function openLineCard(jobId, version, lines, at, player) {
     note.hidden = !note.value;
     addNote.hidden = !!note.value;
     addNote.onclick = () => showNote(true);
+    note.oninput = () => paint();
     const paint = () => {
+      // 進度條即時跟著：這一句亮一段，選了改法先出現空心點。
+      paintBand(line);
+      paintMarks(jobId, version, lines, { text: line.text, at: line.at, cut, broll, note: note.value.trim() });
       // 移除這句時不用寫說明：收起說明，免得寫了以為有送。
       note.disabled = cut;
       addNote.disabled = cut;
@@ -458,9 +470,35 @@ function openLineCard(jobId, version, lines, at, player) {
     keep.onclick = () => { if (remember()) finish(true); };
     actions.append(cancel, keep);
     paint();
-    card.replaceChildren(nav, quote, choiceRow, addNote, note, actions);
+    card.replaceChildren(el('div', 'card-handle'), nav, quote, choiceRow, addNote, note, actions);
   };
   render(Math.max(0, at));
+  // 往下滑收起卡片（和「取消」一樣）；拉不夠放開就彈回去。點按鈕不受影響：移動超過 8 點才算在拉。
+  let drag = null;
+  card.addEventListener('pointerdown', (event) => {
+    if (event.target.closest('textarea')) return;
+    drag = { id: event.pointerId, y: event.clientY, dy: 0, pulling: false };
+  });
+  card.addEventListener('pointermove', (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    drag.dy = Math.max(0, event.clientY - drag.y);
+    if (!drag.pulling && drag.dy > 8) {
+      drag.pulling = true;
+      card.setPointerCapture(event.pointerId);
+      card.classList.add('dragging');
+    }
+    if (drag.pulling) card.style.transform = `translateY(${drag.dy}px)`;
+  });
+  const release = () => {
+    const done = drag;
+    drag = null;
+    if (!done || !done.pulling) return;
+    card.classList.remove('dragging');
+    if (L.dragClose(done.dy, card.offsetHeight)) finish(false);
+    else card.style.transform = '';
+  };
+  card.addEventListener('pointerup', release);
+  card.addEventListener('pointercancel', release);
   document.body.append(card);
   lift();
   // 全螢幕時卡片半透明疊在影片下半部；平常時影片縮到卡片上方放得下的高度，再捲到最上面：整個畫面都看得到。
@@ -480,6 +518,8 @@ function buildStage(jobId, version, sentences, player) {
   const play = el('button', 'stage-button', '▶');
   const scrub = el('div', 'stage-scrub');
   const fill = el('div', 'stage-fill');
+  const band = el('div', 'stage-band');
+  band.hidden = true;
   const marks = el('div', 'stage-marks');
   const time = el('span', 'stage-time', '0:00');
   const full = el('button', 'stage-button', '⤢');
@@ -487,7 +527,7 @@ function buildStage(jobId, version, sentences, player) {
   full.setAttribute('aria-label', '全螢幕');
   scrub.setAttribute('role', 'slider');
   scrub.setAttribute('aria-label', '播放位置');
-  scrub.append(fill, marks);
+  scrub.append(band, fill, marks);
   controls.append(play, scrub, time, full);
   const sync = () => {
     const duration = player.duration;
@@ -528,14 +568,25 @@ function buildStage(jobId, version, sentences, player) {
   return stage;
 }
 
+// 正在改的那一句在進度條上亮一段；line 是 null 就收起來。
+function paintBand(line) {
+  const stage = $('stage');
+  const band = stage && stage.querySelector('.stage-band');
+  const player = stage && stage.querySelector('video');
+  if (!band || !player) return;
+  const range = line ? L.lineBand(line, player.duration) : null;
+  band.hidden = !range;
+  if (range) { band.style.left = `${range.left}%`; band.style.width = `${range.width}%`; }
+}
+
 // 進度條上的點：修改單每一筆一個，點了停下來打開那一句的卡片。
-function paintMarks(jobId, version, sentences) {
+function paintMarks(jobId, version, sentences, draft) {
   const stage = $('stage');
   const marks = stage && stage.querySelector('.stage-marks');
   const player = stage && stage.querySelector('video');
   if (!marks || !player) return;
-  marks.replaceChildren(...L.sheetMarks(readSheet(jobId, version), player.duration).map((m) => {
-    const dot = el('button', 'stage-dot');
+  marks.replaceChildren(...L.sheetMarks(readSheet(jobId, version), player.duration, draft).map((m) => {
+    const dot = el('button', 'stage-dot' + (m.pending ? ' pending' : ''));
     dot.style.left = `${m.left}%`;
     dot.setAttribute('aria-label', `修改單：${L.clock(m.at)}`);
     dot.addEventListener('pointerdown', (event) => event.stopPropagation());

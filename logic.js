@@ -156,8 +156,23 @@
   // ---- 自己的播放器 ----
   // 手指在進度條上的位置換成 0～1。
   const scrubFraction = (x, left, width) => (width > 0 ? Math.min(1, Math.max(0, (x - left) / width)) : 0);
+  const percent = (seconds, duration) => Math.min(100, Math.max(0, Math.round((seconds / duration) * 1000) / 10));
   // 修改單每一筆在進度條上的位置（百分比）；還不知道片長就不畫。
-  const sheetMarks = (sheet, duration) => (duration > 0 ? (sheet || []).map((e) => ({ text: e.text, at: e.at, left: Math.min(100, Math.round((e.at / duration) * 1000) / 10) })) : []);
+  // draft：卡片上正在改、還沒記下來的那一句：有選改法就換成空心點（pending），全部取消就先拿掉那句的點。
+  const sheetMarks = (sheet, duration, draft) => {
+    if (!(duration > 0)) return [];
+    const marks = (sheet || []).filter((e) => !(draft && sameLine(e, draft))).map((e) => ({ text: e.text, at: e.at, left: percent(e.at, duration) }));
+    if (draft && (draft.cut || draft.broll || draft.note)) marks.push({ text: draft.text, at: draft.at, left: percent(draft.at, duration), pending: true });
+    return marks.sort((a, b) => a.at - b.at);
+  };
+  // 正在改的那一句在進度條上的範圍（百分比）。
+  const lineBand = (line, duration) => {
+    if (!line || !(duration > 0)) return null;
+    const left = percent(line.at, duration);
+    return { left, width: Math.round((percent(Math.min(line.end, duration), duration) - left) * 10) / 10 };
+  };
+  // 卡片往下滑超過自己高度的四分之一就收起。
+  const dragClose = (dy, height) => height > 0 && dy > height / 4;
   const timeText = (current, duration) => (Number.isFinite(duration) && duration > 0 ? `${clock(current)} / ${clock(duration)}` : clock(current));
   // 鍵盤跳出來時卡片要墊多高：畫面高度（innerHeight）減掉看得到的那一塊（visualViewport 的高度加上被往上推的距離）。
   const keyboardInset = (innerHeight, viewHeight, viewTop) => Math.max(0, Math.round(innerHeight - viewHeight - viewTop));
@@ -232,7 +247,7 @@
     return [...now, ...back].sort((a, b) => a.at - b.at);
   };
 
-  const api = { scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
+  const api = { lineBand, dragClose, scrubFraction, sheetMarks, timeText, keyboardInset, computerRows, shouldReload, lineAt, putSheet, dropSheet, canAddToSheet, tooBigToSend, sheetItems, sheetLine, restoreSheet, brollNow, clock, versionLines, pendingLines, sendStatus, clockText, waitingForComputer, inboxName, readPair, parsePairCode, shouldAutoSignIn, needsHomeScreen, defaultDeviceName, statusLabel, ago, isOffline, offlineText, needsSignIn, forbiddenText, pushKey, deviceRecord, readReturnedToken, jobFromHash };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EkkoLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
